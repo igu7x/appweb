@@ -1,0 +1,462 @@
+import { useState, useMemo } from 'react';
+import { useGestao } from '@/contexts/GestaoContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { useDirectorate } from '@/contexts/DirectorateContext';
+import { Pencil, Trash2, Plus } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { api } from '@/services/api';
+import { Objective, KeyResult, OKRStatus, OKRSituation } from '@/types';
+import { OKRStatsCards } from './OKRStatsCards';
+
+type BadgeVariant = 'default' | 'secondary' | 'outline' | 'destructive';
+
+export function MonitoramentoOKRs() {
+  const { objectives, keyResults, refreshData } = useGestao();
+  const { user } = useAuth();
+  const { selectedDirectorate } = useDirectorate();
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [krDialogOpen, setKrDialogOpen] = useState(false);
+  const [statusDialogOpen, setStatusDialogOpen] = useState(false);
+  const [editingObjective, setEditingObjective] = useState<Objective | null>(null);
+  const [editingKR, setEditingKR] = useState<KeyResult | null>(null);
+  const [editingKRStatus, setEditingKRStatus] = useState<KeyResult | null>(null);
+  const [selectedObjectiveId, setSelectedObjectiveId] = useState<string>('');
+
+  // Apenas ADMIN pode criar/editar/excluir
+  const canFullEdit = user?.role === 'ADMIN';
+  // GESTOR pode apenas alterar o STATUS das KRs
+  const canEditStatus = user?.role === 'MANAGER' || user?.role === 'ADMIN';
+
+  // Filtrar por diretoria
+  const filteredObjectives = useMemo(() => {
+    return objectives.filter(obj => obj.directorate === selectedDirectorate);
+  }, [objectives, selectedDirectorate]);
+
+  const filteredKeyResults = useMemo(() => {
+    return keyResults.filter(kr => kr.directorate === selectedDirectorate);
+  }, [keyResults, selectedDirectorate]);
+
+  const handleSaveObjective = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+
+    const data = {
+      code: formData.get('code') as string,
+      title: formData.get('title') as string,
+      description: formData.get('description') as string,
+      directorate: selectedDirectorate
+    };
+
+    try {
+      if (editingObjective) {
+        await api.updateObjective(editingObjective.id, data);
+      } else {
+        await api.createObjective(data);
+      }
+      await refreshData();
+      setDialogOpen(false);
+      setEditingObjective(null);
+    } catch (error) {
+      console.error('Erro ao salvar objetivo:', error);
+    }
+  };
+
+  const handleDeleteObjective = async (id: string) => {
+    if (confirm('Tem certeza que deseja excluir este objetivo e todos os seus KRs?')) {
+      try {
+        await api.deleteObjective(id);
+        await refreshData();
+      } catch (error) {
+        console.error('Erro ao excluir objetivo:', error);
+      }
+    }
+  };
+
+  const handleSaveKR = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+
+    const data = {
+      objectiveId: formData.get('objectiveId') as string,
+      code: formData.get('code') as string,
+      description: formData.get('description') as string,
+      status: formData.get('status') as OKRStatus,
+      situation: (formData.get('situation') as OKRSituation) || 'NO_PRAZO',
+      deadline: formData.get('deadline') as string,
+      directorate: selectedDirectorate
+    };
+
+    try {
+      if (editingKR) {
+        await api.updateKeyResult(editingKR.id, data);
+      } else {
+        await api.createKeyResult(data);
+      }
+      await refreshData();
+      setKrDialogOpen(false);
+      setEditingKR(null);
+    } catch (error) {
+      console.error('Erro ao salvar KR:', error);
+    }
+  };
+
+  const handleSaveKRStatus = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+
+    if (!editingKRStatus) return;
+
+    const data = {
+      status: formData.get('status') as OKRStatus
+    };
+
+    try {
+      await api.updateKeyResult(editingKRStatus.id, data);
+      await refreshData();
+      setStatusDialogOpen(false);
+      setEditingKRStatus(null);
+    } catch (error) {
+      console.error('Erro ao atualizar status:', error);
+    }
+  };
+
+  const handleDeleteKR = async (id: string) => {
+    if (confirm('Tem certeza que deseja excluir este KR?')) {
+      try {
+        await api.deleteKeyResult(id);
+        await refreshData();
+      } catch (error) {
+        console.error('Erro ao excluir KR:', error);
+      }
+    }
+  };
+
+  const getStatusBadge = (status: OKRStatus) => {
+    const config = {
+      CONCLUIDO: { variant: 'default' as BadgeVariant, label: 'Concluído', className: 'bg-green-500 hover:bg-green-600 text-white border-0' },
+      EM_ANDAMENTO: { variant: 'default' as BadgeVariant, label: 'Em andamento', className: 'bg-yellow-400 hover:bg-yellow-500 text-gray-900 border-0' },
+      NAO_INICIADO: { variant: 'default' as BadgeVariant, label: 'Não iniciado', className: 'bg-orange-400 hover:bg-orange-500 text-white border-0' }
+    };
+    const { variant, label, className } = config[status];
+    return <Badge variant={variant} className={className}>{label}</Badge>;
+  };
+
+  const getSituationBadge = (situation: OKRSituation) => {
+    const config = {
+      NO_PRAZO: { label: 'No prazo', className: 'bg-blue-500 hover:bg-blue-600 text-white border-0' },
+      FINALIZADO: { label: 'Finalizado', className: 'bg-green-500 hover:bg-green-600 text-white border-0' },
+      EM_ATRASO: { label: 'Em atraso', className: 'bg-red-500 hover:bg-red-600 text-white border-0' }
+    };
+    const { label, className } = config[situation];
+    return <Badge className={className}>{label}</Badge>;
+  };
+
+  return (
+    <div className="space-y-4 lg:space-y-6">
+      {/* Bolachinhas - Cards de Estatísticas */}
+      <OKRStatsCards />
+
+      {/* Botão Novo Objetivo - Apenas para ADMIN */}
+      {canFullEdit && (
+        <div className="flex justify-end">
+          <Button onClick={() => { setEditingObjective(null); setDialogOpen(true); }} className="bg-blue-600 hover:bg-blue-700" size="sm">
+            <Plus className="mr-2 h-4 w-4" />
+            <span className="hidden sm:inline">Novo Objetivo</span>
+            <span className="sm:hidden">Novo</span>
+          </Button>
+        </div>
+      )}
+
+      {/* Tabela de Objetivos e KRs */}
+      <Card>
+        <CardContent className="p-0">
+          <div className="bg-[#1e5a7d] text-white p-3 lg:p-4 font-bold text-sm lg:text-lg">
+            OBJETIVO E DESCRIÇÃO
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px]">
+              <thead className="bg-[#1e5a7d] text-white">
+                <tr>
+                  <th className="text-left p-2 lg:p-4 font-medium text-xs lg:text-sm">Descrição</th>
+                  <th className="text-center p-2 lg:p-4 font-medium text-xs lg:text-sm w-32">STATUS</th>
+                  <th className="text-center p-2 lg:p-4 font-medium text-xs lg:text-sm w-32">SITUAÇÃO</th>
+                  <th className="text-center p-2 lg:p-4 font-medium text-xs lg:text-sm w-32 lg:w-40">PRAZO</th>
+                  {(canFullEdit || canEditStatus) && <th className="text-center p-2 lg:p-4 font-medium text-xs lg:text-sm w-24 lg:w-32">AÇÕES</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {filteredObjectives.map((obj) => {
+                  const objKRs = filteredKeyResults.filter(kr => kr.objectiveId === obj.id);
+
+                  return (
+                    <>
+                      {/* Linha do Objetivo */}
+                      <tr key={obj.id} className="border-b bg-gray-50">
+                        <td className="p-2 lg:p-4" colSpan={(canFullEdit || canEditStatus) ? 5 : 4}>
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex-1 min-w-0">
+                              <div className="font-bold text-gray-900 text-sm lg:text-base">{obj.code}</div>
+                              <div className="text-xs lg:text-sm text-gray-700 mt-1">{obj.title}</div>
+                            </div>
+                            {canFullEdit && (
+                              <div className="flex gap-1 lg:gap-2 flex-shrink-0">
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => { setEditingObjective(obj); setDialogOpen(true); }}
+                                  className="h-8 w-8 p-0"
+                                >
+                                  <Pencil className="h-3 w-3 lg:h-4 lg:w-4" />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => handleDeleteObjective(obj.id)}
+                                  className="h-8 w-8 p-0"
+                                >
+                                  <Trash2 className="h-3 w-3 lg:h-4 lg:w-4" />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => { setSelectedObjectiveId(obj.id); setEditingKR(null); setKrDialogOpen(true); }}
+                                  className="bg-blue-600 text-white hover:bg-blue-700 h-8 px-2 text-xs"
+                                >
+                                  <Plus className="h-3 w-3 lg:h-4 lg:w-4 lg:mr-1" />
+                                  <span className="hidden lg:inline">KR</span>
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                      {/* Linhas dos KRs */}
+                      {objKRs.map((kr) => (
+                        <tr key={kr.id} className="border-b hover:bg-gray-50">
+                          <td className="p-2 lg:p-4 pl-4 lg:pl-8">
+                            <div className="text-xs lg:text-sm">
+                              <span className="font-semibold text-gray-900">{kr.code}:</span>{' '}
+                              <span className="text-gray-700">{kr.description}</span>
+                            </div>
+                          </td>
+                          <td className="p-2 lg:p-4 text-center">
+                            <div className="flex items-center justify-center gap-2">
+                              {getStatusBadge(kr.status)}
+                              {canEditStatus && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => { setEditingKRStatus(kr); setStatusDialogOpen(true); }}
+                                  className="h-6 w-6 p-0"
+                                  title="Alterar status"
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                </Button>
+                              )}
+                            </div>
+                          </td>
+                          <td className="p-2 lg:p-4 text-center">{getSituationBadge(kr.situation)}</td>
+                          <td className="p-2 lg:p-4 text-center text-xs lg:text-sm text-gray-700">{kr.deadline}</td>
+                          {canFullEdit && (
+                            <td className="p-2 lg:p-4">
+                              <div className="flex gap-1 lg:gap-2 justify-center">
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => { setEditingKR(kr); setKrDialogOpen(true); }}
+                                  className="h-8 w-8 p-0"
+                                >
+                                  <Pencil className="h-3 w-3 lg:h-4 lg:w-4" />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => handleDeleteKR(kr.id)}
+                                  className="h-8 w-8 p-0"
+                                >
+                                  <Trash2 className="h-3 w-3 lg:h-4 lg:w-4" />
+                                </Button>
+                              </div>
+                            </td>
+                          )}
+                          {!canFullEdit && canEditStatus && (
+                            <td className="p-2 lg:p-4"></td>
+                          )}
+                        </tr>
+                      ))}
+                    </>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Dialog para Objetivo - Apenas ADMIN */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <form onSubmit={handleSaveObjective}>
+            <DialogHeader>
+              <DialogTitle>{editingObjective ? 'Editar Objetivo' : 'Novo Objetivo'}</DialogTitle>
+              <DialogDescription>
+                Preencha os dados do objetivo estratégico
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div>
+                <Label htmlFor="code">Código</Label>
+                <Input id="code" name="code" defaultValue={editingObjective?.code} required />
+              </div>
+              <div>
+                <Label htmlFor="title">Título</Label>
+                <Input id="title" name="title" defaultValue={editingObjective?.title} required />
+              </div>
+              <div>
+                <Label htmlFor="description">Descrição</Label>
+                <Textarea id="description" name="description" defaultValue={editingObjective?.description} />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
+                Cancelar
+              </Button>
+              <Button type="submit">Salvar</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog para KR - Apenas ADMIN */}
+      <Dialog open={krDialogOpen} onOpenChange={setKrDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <form onSubmit={handleSaveKR}>
+            <DialogHeader>
+              <DialogTitle>{editingKR ? 'Editar KR' : 'Novo KR'}</DialogTitle>
+              <DialogDescription>
+                Preencha os dados do Key Result
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div>
+                <Label htmlFor="objectiveId">Objetivo</Label>
+                <Select name="objectiveId" defaultValue={editingKR?.objectiveId || selectedObjectiveId} required>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione um objetivo" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {filteredObjectives.map(obj => (
+                      <SelectItem key={obj.id} value={obj.id}>{obj.code} - {obj.title}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="code">Código</Label>
+                <Input id="code" name="code" defaultValue={editingKR?.code} required />
+              </div>
+              <div>
+                <Label htmlFor="description">Descrição</Label>
+                <Textarea id="description" name="description" defaultValue={editingKR?.description} required />
+              </div>
+              <div>
+                <Label htmlFor="status">Status</Label>
+                <Select name="status" defaultValue={editingKR?.status || 'NAO_INICIADO'} required>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="NAO_INICIADO">A iniciar</SelectItem>
+                    <SelectItem value="EM_ANDAMENTO">Em andamento</SelectItem>
+                    <SelectItem value="CONCLUIDO">Concluído</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="situation">Situação (Calculado Automaticamente)</Label>
+                <Select name="situation" defaultValue={editingKR?.situation || 'NO_PRAZO'} disabled>
+                  <SelectTrigger className="bg-gray-100">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="NO_PRAZO">No prazo</SelectItem>
+                    <SelectItem value="EM_ATRASO">Em atraso</SelectItem>
+                    <SelectItem value="FINALIZADO">Finalizado</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-gray-500 mt-1">
+                  A situação é atualizada automaticamente com base no status e no prazo.
+                </p>
+              </div>
+              <div>
+                <Label htmlFor="deadline">Prazo</Label>
+                <Input id="deadline" name="deadline" placeholder="Ex: julho - 2025" defaultValue={editingKR?.deadline} required />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setKrDialogOpen(false)}>
+                Cancelar
+              </Button>
+              <Button type="submit">Salvar</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog para alterar STATUS - GESTOR e ADMIN */}
+      <Dialog open={statusDialogOpen} onOpenChange={setStatusDialogOpen}>
+        <DialogContent className="max-w-md">
+          <form onSubmit={handleSaveKRStatus}>
+            <DialogHeader>
+              <DialogTitle>Alterar Status do KR</DialogTitle>
+              <DialogDescription>
+                {editingKRStatus && `${editingKRStatus.code}: ${editingKRStatus.description}`}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div>
+                <Label htmlFor="status">Novo Status</Label>
+                <Select name="status" defaultValue={editingKRStatus?.status} required>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="NAO_INICIADO">A iniciar</SelectItem>
+                    <SelectItem value="EM_ANDAMENTO">Em andamento</SelectItem>
+                    <SelectItem value="CONCLUIDO">Concluído</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setStatusDialogOpen(false)}>
+                Cancelar
+              </Button>
+              <Button type="submit">Salvar</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
