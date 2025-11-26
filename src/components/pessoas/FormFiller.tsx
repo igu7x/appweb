@@ -25,7 +25,7 @@ export function FormFiller() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const { user } = useAuth();
-  
+
   const [form, setForm] = useState<FormWithDetails | null>(null);
   const [response, setResponse] = useState<FormResponse | null>(null);
   const [answers, setAnswers] = useState<Record<string, string | string[] | number>>({});
@@ -39,7 +39,7 @@ export function FormFiller() {
 
   const loadForm = async () => {
     if (!id) return;
-    
+
     try {
       setLoading(true);
       const formData = await formApi.getFormById(id);
@@ -48,7 +48,7 @@ export function FormFiller() {
         navigate('/pessoas');
         return;
       }
-      
+
       setForm(formData);
 
       // Verificar se existe resposta existente
@@ -56,11 +56,11 @@ export function FormFiller() {
       if (responseId) {
         const responses = await formApi.getUserResponses(user?.id || '');
         const existingResponse = responses.find(r => r.id === responseId);
-        
+
         if (existingResponse) {
           setResponse(existingResponse);
           setIsReadOnly(existingResponse.status === 'SUBMITTED');
-          
+
           // Carregar respostas existentes
           const answersMap: Record<string, string | string[] | number> = {};
           existingResponse.answers.forEach(answer => {
@@ -82,9 +82,9 @@ export function FormFiller() {
 
     try {
       setSaving(true);
-      
+
       let responseId = response?.id;
-      
+
       if (!responseId) {
         const newResponse = await formApi.createResponse({
           formId: form.id,
@@ -119,7 +119,7 @@ export function FormFiller() {
     // Validar campos obrigatórios
     const requiredFields = form.fields.filter(f => f.required);
     const missingFields = requiredFields.filter(f => !answers[f.id] || answers[f.id] === '');
-    
+
     if (missingFields.length > 0) {
       alert(`Por favor, preencha todos os campos obrigatórios: ${missingFields.map(f => f.label).join(', ')}`);
       return;
@@ -131,9 +131,9 @@ export function FormFiller() {
 
     try {
       setSaving(true);
-      
+
       let responseId = response?.id;
-      
+
       if (!responseId) {
         const newResponse = await formApi.createResponse({
           formId: form.id,
@@ -271,7 +271,7 @@ export function FormFiller() {
         const minValue = field.config?.minValue || 1;
         const maxValue = field.config?.maxValue || 5;
         const options = Array.from({ length: maxValue - minValue + 1 }, (_, i) => minValue + i);
-        
+
         return (
           <div key={field.id} className="space-y-2">
             <Label>
@@ -396,13 +396,13 @@ export function FormFiller() {
       <div className="space-y-6 max-w-4xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between">
-          <Button variant="ghost" onClick={() => navigate('/pessoas')}>
+          <Button variant="ghost" onClick={() => navigate('/pessoas')} className="text-white hover:text-white/90">
             <ArrowLeft className="mr-2 h-4 w-4" />
             Voltar
           </Button>
           {!isReadOnly && (
             <div className="flex gap-2">
-              <Button variant="outline" onClick={handleSaveDraft} disabled={saving}>
+              <Button variant="outline" onClick={handleSaveDraft} disabled={saving} className="text-white border-white hover:bg-white/10 hover:text-white">
                 <Save className="mr-2 h-4 w-4" />
                 {saving ? 'Salvando...' : 'Salvar Rascunho'}
               </Button>
@@ -448,10 +448,17 @@ export function FormFiller() {
           const sectionFields = form.fields
             .filter(f => f.sectionId === section.id)
             .sort((a, b) => a.order - b.order);
-          
+
+          console.log(`[FormFiller] Rendering section: "${section.title}" (ID: ${section.id})`);
+          console.log(`[FormFiller] Fields found for this section: ${sectionFields.length}`);
+          sectionFields.forEach(f => console.log(`  - Field: "${f.label}" (SectionId: ${f.sectionId})`));
+
           // Só renderizar seção se houver campos
-          if (sectionFields.length === 0) return null;
-          
+          if (sectionFields.length === 0) {
+            console.warn(`[FormFiller] ⚠ Section "${section.title}" has NO fields - skipping render`);
+            return null;
+          }
+
           return (
             <Card key={section.id}>
               <CardHeader className="bg-blue-50">

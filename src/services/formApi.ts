@@ -114,6 +114,12 @@ export const getFormById = async (id: string): Promise<FormWithDetails | null> =
   const fields = deepClone(formFields.filter(f => f.formId === id).sort((a, b) => a.order - b.order));
   const responseCount = formResponses.filter(r => r.formId === id && r.status === 'SUBMITTED').length;
 
+  console.log(`[getFormById] Form: "${form.title}" (ID: ${id})`);
+  console.log(`[getFormById] Sections loaded: ${sections.length}`);
+  sections.forEach(s => console.log(`  - Section: "${s.title}" (ID: ${s.id})`));
+  console.log(`[getFormById] Fields loaded: ${fields.length}`);
+  fields.forEach(f => console.log(`  - Field: "${f.label}" (ID: ${f.id}, SectionId: ${f.sectionId || 'none'})`));
+
   return {
     ...deepClone(form),
     sections,
@@ -236,36 +242,69 @@ export const saveSectionsAndFields = async (
 ): Promise<{ sections: FormSection[]; fields: FormField[] }> => {
   await new Promise(resolve => setTimeout(resolve, 100));
 
+  console.log('[saveSectionsAndFields] Iniciando salvamento...');
+  console.log('[saveSectionsAndFields] FormId:', formId);
+  console.log('[saveSectionsAndFields] Sections:', sections.length);
+  console.log('[saveSectionsAndFields] Fields:', fields.length);
+
   // Remove all existing sections and fields for this form
   formSections = formSections.filter(s => s.formId !== formId);
   formFields = formFields.filter(f => f.formId !== formId);
 
-  // Add new sections
+  // Create a mapping from old section IDs to new section IDs
+  const sectionIdMap = new Map<string, string>();
+
+  // Add new sections and build ID mapping
   const savedSections: FormSection[] = [];
   for (const section of sections) {
+    const oldId = section.id;
+    const newId = section.id.startsWith('temp-') ? `section-${Date.now()}-${Math.random()}` : section.id;
+
+    // Store the mapping
+    sectionIdMap.set(oldId, newId);
+
     const newSection: FormSection = {
       ...deepClone(section),
-      id: section.id.startsWith('temp-') ? `section-${Date.now()}-${Math.random()}` : section.id,
+      id: newId,
       formId
     };
     formSections.push(newSection);
     savedSections.push(deepClone(newSection));
+
+    console.log(`[saveSectionsAndFields] Section ID mapping: ${oldId} -> ${newId}`);
   }
 
-  // Add new fields
+  // Add new fields with updated section IDs
   const savedFields: FormField[] = [];
   for (const field of fields) {
+    const oldFieldId = field.id;
+    const newFieldId = field.id.startsWith('temp-') ? `field-${Date.now()}-${Math.random()}` : field.id;
+
+    // Update sectionId if it's a temporary ID
+    let updatedSectionId = field.sectionId;
+    if (field.sectionId && sectionIdMap.has(field.sectionId)) {
+      updatedSectionId = sectionIdMap.get(field.sectionId);
+      console.log(`[saveSectionsAndFields] Field "${field.label}" - SectionId updated: ${field.sectionId} -> ${updatedSectionId}`);
+    }
+
     const newField: FormField = {
       ...deepClone(field),
-      id: field.id.startsWith('temp-') ? `field-${Date.now()}-${Math.random()}` : field.id,
-      formId
+      id: newFieldId,
+      formId,
+      sectionId: updatedSectionId
     };
     formFields.push(newField);
     savedFields.push(deepClone(newField));
+
+    console.log(`[saveSectionsAndFields] Field saved: "${field.label}" (ID: ${oldFieldId} -> ${newFieldId}, SectionId: ${updatedSectionId})`);
   }
 
   saveToStorage(STORAGE_KEYS.SECTIONS, formSections);
   saveToStorage(STORAGE_KEYS.FIELDS, formFields);
+
+  console.log('[saveSectionsAndFields] Salvamento concluído!');
+  console.log('[saveSectionsAndFields] Total sections saved:', savedSections.length);
+  console.log('[saveSectionsAndFields] Total fields saved:', savedFields.length);
 
   return { sections: savedSections, fields: savedFields };
 };

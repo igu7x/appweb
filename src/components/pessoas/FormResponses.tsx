@@ -25,7 +25,7 @@ import { Layout } from '@/components/layout/Layout';
 export function FormResponses() {
   const navigate = useNavigate();
   const { id } = useParams();
-  
+
   const [form, setForm] = useState<FormWithDetails | null>(null);
   const [responses, setResponses] = useState<ResponseWithAnswers[]>([]);
   const [selectedResponse, setSelectedResponse] = useState<ResponseWithAnswers | null>(null);
@@ -37,14 +37,14 @@ export function FormResponses() {
 
   const loadData = async () => {
     if (!id) return;
-    
+
     try {
       setLoading(true);
       const [formData, responsesData] = await Promise.all([
         formApi.getFormById(id),
         formApi.getFormResponses(id)
       ]);
-      
+
       if (formData) {
         setForm(formData);
       }
@@ -61,7 +61,7 @@ export function FormResponses() {
 
     // Criar cabeçalhos
     const headers = ['Usuário', 'Data de Envio', ...form.fields.map(f => f.label)];
-    
+
     // Criar linhas
     const rows = responses
       .filter(r => r.status === 'SUBMITTED')
@@ -70,11 +70,11 @@ export function FormResponses() {
           response.userName,
           response.submittedAt ? new Date(response.submittedAt).toLocaleString('pt-BR') : ''
         ];
-        
+
         form.fields.forEach(field => {
           const answer = response.answers.find(a => a.fieldId === field.id);
           let value = '';
-          
+
           if (answer) {
             if (Array.isArray(answer.value)) {
               value = answer.value.join(', ');
@@ -82,10 +82,10 @@ export function FormResponses() {
               value = String(answer.value);
             }
           }
-          
+
           row.push(value);
         });
-        
+
         return row;
       });
 
@@ -105,19 +105,19 @@ export function FormResponses() {
 
   const getFieldValue = (field: FormField, response: ResponseWithAnswers): string => {
     const answer = response.answers.find(a => a.fieldId === field.id);
-    
+
     if (!answer) {
       return '(não respondido)';
     }
-    
+
     if (Array.isArray(answer.value)) {
       return answer.value.join(', ');
     }
-    
+
     if (field.type === 'SCALE' || field.type === 'NUMBER') {
       return String(answer.value);
     }
-    
+
     if (field.type === 'DATE') {
       try {
         return new Date(answer.value as string).toLocaleDateString('pt-BR');
@@ -125,7 +125,7 @@ export function FormResponses() {
         return String(answer.value);
       }
     }
-    
+
     return String(answer.value);
   };
 
@@ -157,17 +157,17 @@ export function FormResponses() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <Button variant="ghost" onClick={() => navigate('/pessoas')}>
+            <Button variant="ghost" onClick={() => navigate('/pessoas')} className="text-white hover:text-white/90 hover:bg-white/10">
               <ArrowLeft className="mr-2 h-4 w-4" />
               Voltar
             </Button>
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">{form.title}</h1>
-              <p className="text-sm text-gray-600">Respostas recebidas</p>
+              <h1 className="text-2xl font-bold text-white">{form.title}</h1>
+              <p className="text-sm text-white">Respostas recebidas</p>
             </div>
           </div>
           {submittedResponses.length > 0 && (
-            <Button onClick={handleExportCSV} variant="outline">
+            <Button onClick={handleExportCSV} variant="outline" className="text-white border-white hover:bg-white/10 hover:text-white">
               <Download className="mr-2 h-4 w-4" />
               Exportar CSV
             </Button>
@@ -234,7 +234,7 @@ export function FormResponses() {
                       <TableRow key={response.id}>
                         <TableCell className="font-medium">{response.userName}</TableCell>
                         <TableCell>
-                          {response.submittedAt 
+                          {response.submittedAt
                             ? new Date(response.submittedAt).toLocaleString('pt-BR')
                             : '-'}
                         </TableCell>
@@ -277,7 +277,7 @@ export function FormResponses() {
                 </Button>
               </div>
             </DialogHeader>
-            
+
             {selectedResponse && (
               <div className="space-y-6">
                 {/* Informações do Respondente */}
@@ -291,7 +291,7 @@ export function FormResponses() {
                       <div>
                         <p className="text-sm text-gray-600">Data de Envio</p>
                         <p className="font-semibold">
-                          {selectedResponse.submittedAt 
+                          {selectedResponse.submittedAt
                             ? new Date(selectedResponse.submittedAt).toLocaleString('pt-BR')
                             : '-'}
                         </p>
@@ -328,9 +328,9 @@ export function FormResponses() {
                   const sectionFields = form.fields
                     .filter(f => f.sectionId === section.id)
                     .sort((a, b) => a.order - b.order);
-                  
+
                   if (sectionFields.length === 0) return null;
-                  
+
                   return (
                     <Card key={section.id}>
                       <CardHeader className="bg-blue-50">
