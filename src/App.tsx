@@ -39,7 +39,7 @@ function App() {
               <Route
                 path="/administracao"
                 element={
-                  <ProtectedRoute adminOnly>
+                  <ProtectedRoute allowedRoles={['ADMIN']}>
                     <Administracao />
                   </ProtectedRoute>
                 }
@@ -55,7 +55,7 @@ function App() {
               <Route
                 path="/pessoas/criar"
                 element={
-                  <ProtectedRoute adminOnly>
+                  <ProtectedRoute allowedRoles={['ADMIN']}>
                     <FormBuilder />
                   </ProtectedRoute>
                 }
@@ -63,7 +63,7 @@ function App() {
               <Route
                 path="/pessoas/editar/:id"
                 element={
-                  <ProtectedRoute adminOnly>
+                  <ProtectedRoute allowedRoles={['ADMIN']}>
                     <FormBuilder />
                   </ProtectedRoute>
                 }
@@ -79,7 +79,7 @@ function App() {
               <Route
                 path="/pessoas/respostas/:id"
                 element={
-                  <ProtectedRoute adminOnly>
+                  <ProtectedRoute allowedRoles={['ADMIN']}>
                     <FormResponses />
                   </ProtectedRoute>
                 }
