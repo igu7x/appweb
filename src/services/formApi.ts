@@ -8,34 +8,44 @@ import {
   ResponseWithAnswers,
   Directorate
 } from '@/types';
-import { apiClient } from './apiClient';
+import { apiClient, ApiError } from './apiClient';
 
 // ============================================================
 // FORMS
 // ============================================================
 
-export const getForms = async (directorate?: Directorate, options?: { isAdmin?: boolean, filterByVisibility?: boolean }): Promise<Form[]> => {
-  const params: any = {};
+export const getForms = async (
+  directorate?: Directorate, 
+  options?: { isAdmin?: boolean; filterByVisibility?: boolean }
+): Promise<Form[]> => {
+  const params = new URLSearchParams();
 
   if (options?.isAdmin) {
-    params.isAdmin = 'true';
+    params.set('isAdmin', 'true');
   } else if (directorate) {
-    params.directorate = directorate;
+    params.set('directorate', directorate);
   }
 
-  return apiClient.get<Form[]>('/api/forms?' + new URLSearchParams(params).toString());
+  const queryString = params.toString();
+  const endpoint = queryString ? `/api/forms?${queryString}` : '/api/forms';
+  
+  return apiClient.get<Form[]>(endpoint);
 };
 
 export const getFormById = async (id: string): Promise<FormWithDetails | null> => {
   try {
     return await apiClient.get<FormWithDetails>(`/api/forms/${id}`);
   } catch (error) {
-    console.error('Error fetching form:', error);
-    return null;
+    if (error instanceof ApiError && error.status === 404) {
+      return null;
+    }
+    throw error;
   }
 };
 
-export const createForm = async (data: Omit<Form, 'id' | 'createdAt' | 'updatedAt'>): Promise<Form> => {
+export const createForm = async (
+  data: Omit<Form, 'id' | 'createdAt' | 'updatedAt'>
+): Promise<Form> => {
   return apiClient.post<Form>('/api/forms', data);
 };
 
@@ -48,40 +58,18 @@ export const deleteForm = async (id: string): Promise<void> => {
 };
 
 // ============================================================
-// SECTIONS & FIELDS
+// SECTIONS & FIELDS (Batch Operations)
 // ============================================================
 
-export const createSection = async (data: Omit<FormSection, 'id'>): Promise<FormSection> => {
-  throw new Error('Use saveSectionsAndFields instead');
-};
-
-export const updateSection = async (id: string, data: Partial<FormSection>): Promise<FormSection> => {
-  throw new Error('Use saveSectionsAndFields instead');
-};
-
-export const deleteSection = async (id: string): Promise<void> => {
-  throw new Error('Use saveSectionsAndFields instead');
-};
-
-export const createField = async (data: Omit<FormField, 'id'>): Promise<FormField> => {
-  throw new Error('Use saveSectionsAndFields instead');
-};
-
-export const updateField = async (id: string, data: Partial<FormField>): Promise<FormField> => {
-  throw new Error('Use saveSectionsAndFields instead');
-};
-
-export const deleteField = async (id: string): Promise<void> => {
-  throw new Error('Use saveSectionsAndFields instead');
-};
-
-// Batch operations
+/**
+ * Salva seções e campos de um formulário em batch
+ * @throws {ApiError} Se houver erro na operação
+ */
 export const saveSectionsAndFields = async (
   formId: string,
   sections: FormSection[],
   fields: FormField[]
 ): Promise<{ sections: FormSection[]; fields: FormField[] }> => {
-
   await apiClient.post(`/api/forms/${formId}/structure`, {
     sections,
     fields
@@ -100,64 +88,153 @@ export const saveSectionsAndFields = async (
   };
 };
 
+/**
+ * Carrega estrutura do formulário (seções e campos)
+ */
+export const getFormStructure = async (
+  formId: string
+): Promise<{ sections: FormSection[]; fields: FormField[] }> => {
+  return apiClient.get<{ sections: FormSection[]; fields: FormField[] }>(
+    `/api/forms/${formId}/structure`
+  );
+};
+
+// Métodos legados - mantidos para compatibilidade mas lançam erro
+export const createSection = async (): Promise<never> => {
+  throw new Error('Use saveSectionsAndFields instead');
+};
+
+export const updateSection = async (): Promise<never> => {
+  throw new Error('Use saveSectionsAndFields instead');
+};
+
+export const deleteSection = async (): Promise<never> => {
+  throw new Error('Use saveSectionsAndFields instead');
+};
+
+export const createField = async (): Promise<never> => {
+  throw new Error('Use saveSectionsAndFields instead');
+};
+
+export const updateField = async (): Promise<never> => {
+  throw new Error('Use saveSectionsAndFields instead');
+};
+
+export const deleteField = async (): Promise<never> => {
+  throw new Error('Use saveSectionsAndFields instead');
+};
+
 // ============================================================
 // RESPONSES
 // ============================================================
 
+/**
+ * Busca todas as respostas de um formulário
+ */
 export const getFormResponses = async (formId: string): Promise<ResponseWithAnswers[]> => {
   return apiClient.get<ResponseWithAnswers[]>(`/api/forms/${formId}/responses`);
 };
 
-export const getUserResponses = async (userId: string, directorate?: Directorate): Promise<ResponseWithAnswers[]> => {
+/**
+ * Busca respostas de um usuário específico
+ */
+export const getUserResponses = async (userId: string): Promise<ResponseWithAnswers[]> => {
   return apiClient.get<ResponseWithAnswers[]>(`/api/users/${userId}/responses`);
 };
 
-export const createResponse = async (data: Omit<FormResponse, 'id' | 'createdAt' | 'updatedAt'> & { answers?: any[] }): Promise<FormResponse> => {
-  // Extrair answers se existirem no objeto data (mesmo que o tipo diga que não)
-  const { answers, ...responseData } = data as any;
+/**
+ * Cria ou atualiza uma resposta de formulário
+ * @throws {ApiError} com status 409 se o formulário já foi respondido
+ */
+export const createResponse = async (
+  data: Omit<FormResponse, 'id' | 'createdAt' | 'updatedAt'> & { answers?: FormAnswer[] }
+): Promise<FormResponse> => {
+  const { answers, ...responseData } = data as FormResponse & { answers?: FormAnswer[] };
 
-  if (answers) {
-    return apiClient.post<FormResponse>(`/api/forms/${responseData.formId}/responses`, {
-      userId: responseData.userId,
-      status: responseData.status,
-      answers
-    });
-  }
-
-  // Se não tiver answers, cria só a response
   return apiClient.post<FormResponse>(`/api/forms/${responseData.formId}/responses`, {
     userId: responseData.userId,
     status: responseData.status,
-    answers: []
+    answers: answers || []
   });
 };
 
-export const updateResponse = async (id: string, data: Partial<FormResponse>): Promise<FormResponse> => {
-  console.warn('updateResponse not implemented in backend');
+/**
+ * Submete resposta de formulário
+ */
+export const submitFormResponse = async (
+  formId: string,
+  userId: string,
+  answers: { fieldId: string; value: string | string[] | number }[]
+): Promise<FormResponse> => {
+  return apiClient.post<FormResponse>(`/api/forms/${formId}/responses`, {
+    userId,
+    status: 'SUBMITTED',
+    answers
+  });
+};
+
+/**
+ * Salva rascunho de resposta
+ */
+export const saveDraftResponse = async (
+  formId: string,
+  userId: string,
+  answers: { fieldId: string; value: string | string[] | number }[]
+): Promise<FormResponse> => {
+  return apiClient.post<FormResponse>(`/api/forms/${formId}/responses`, {
+    userId,
+    status: 'DRAFT',
+    answers
+  });
+};
+
+// Métodos legados
+export const updateResponse = async (
+  id: string, 
+  data: Partial<FormResponse>
+): Promise<FormResponse> => {
+  console.warn('updateResponse: Use createResponse com status DRAFT para atualizar');
   return {} as FormResponse;
 };
 
-export const saveAnswers = async (responseId: string, answers: Omit<FormAnswer, 'id'>[]): Promise<FormAnswer[]> => {
-  console.warn('saveAnswers should be handled via createResponse or updateResponse');
+export const saveAnswers = async (
+  responseId: string, 
+  answers: Omit<FormAnswer, 'id'>[]
+): Promise<FormAnswer[]> => {
+  console.warn('saveAnswers: Use createResponse ou submitFormResponse');
   return [];
 };
 
+// ============================================================
+// EXPORT
+// ============================================================
+
 export const formApi = {
+  // Forms
   getForms,
   getFormById,
   createForm,
   updateForm,
   deleteForm,
+  
+  // Structure
+  getFormStructure,
+  saveSectionsAndFields,
   createSection,
   updateSection,
   deleteSection,
   createField,
   updateField,
   deleteField,
-  saveSectionsAndFields,
+  
+  // Responses
   getFormResponses,
   getUserResponses,
   createResponse,
+  submitFormResponse,
+  saveDraftResponse,
   updateResponse,
   saveAnswers
 };
+
+export default formApi;

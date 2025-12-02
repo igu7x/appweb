@@ -109,11 +109,18 @@ export function FormFiller() {
   };
 
   const handleSubmit = async () => {
-    if (!form || !user) return;
+    if (!form || !user) {
+      alert('Erro: Formulário ou usuário não encontrado.');
+      return;
+    }
 
-    // Validar campos obrigatórios
+    // Validar campos obrigatórios - usar String() para comparação consistente
     const requiredFields = form.fields.filter(f => f.required);
-    const missingFields = requiredFields.filter(f => !answers[f.id] || answers[f.id] === '');
+    const missingFields = requiredFields.filter(f => {
+      const fieldId = String(f.id);
+      const value = answers[fieldId];
+      return !value || value === '' || (Array.isArray(value) && value.length === 0);
+    });
 
     if (missingFields.length > 0) {
       alert(`Por favor, preencha todos os campos obrigatórios: ${missingFields.map(f => f.label).join(', ')}`);
@@ -127,11 +134,20 @@ export function FormFiller() {
     try {
       setSaving(true);
 
-      // Preparar respostas
-      const answersToSave = Object.entries(answers).map(([fieldId, value]) => ({
-        fieldId,
-        value
-      }));
+      // ✅ Preparar respostas - garantir que fieldId seja string para o backend converter
+      const answersToSave = Object.entries(answers)
+        .filter(([_, value]) => value !== undefined && value !== null && value !== '')
+        .map(([fieldId, value]) => ({
+          fieldId: fieldId, // Será convertido para número no backend
+          value: value
+        }));
+
+      console.log('[FormFiller] Enviando resposta:', {
+        formId: form.id,
+        userId: user.id,
+        answersCount: answersToSave.length,
+        answers: answersToSave
+      });
 
       // Enviar tudo junto
       await formApi.createResponse({
@@ -146,12 +162,21 @@ export function FormFiller() {
       alert('Formulário enviado com sucesso!');
       navigate('/pessoas');
     } catch (error: any) {
-      console.error('Erro ao enviar formulário:', error);
-      // ✅ Tratamento específico para erro 409 (já respondeu)
-      if (error.response?.status === 409 || error.message?.includes('409')) {
+      console.error('[FormFiller] Erro ao enviar formulário:', error);
+      
+      // Tratamento específico para diferentes tipos de erro
+      if (error.status === 409 || error.message?.includes('409') || error.message?.includes('já respondeu')) {
         alert('Você já respondeu este formulário.');
+      } else if (error.status === 400) {
+        alert('Dados inválidos. Verifique as respostas e tente novamente.');
+      } else if (error.status === 401) {
+        alert('Sessão expirada. Faça login novamente.');
+        navigate('/login');
       } else {
-        alert('Erro ao enviar formulário. Por favor, tente novamente.');
+        // Mostrar detalhes do erro em desenvolvimento
+        const errorDetails = error.message || 'Erro desconhecido';
+        console.error('[FormFiller] Detalhes do erro:', errorDetails);
+        alert(`Erro ao enviar formulário: ${errorDetails}`);
       }
     } finally {
       setSaving(false);
@@ -159,14 +184,20 @@ export function FormFiller() {
   };
 
   const renderField = (field: FormField) => {
-    const value = answers[field.id];
+    // Normalizar o ID do campo (pode ser número ou string)
+    const fieldId = String(field.id);
+    const value = answers[fieldId];
     const isRequired = field.required;
     const optionalLabel = !isRequired ? ' (opcional)' : '';
 
-    // ✅ CORREÇÃO: Normalizar o tipo do campo (aceita field.type OU field.field_type)
-    const fieldType = (field.type || (field as any).field_type || '').toUpperCase();
+    // ✅ CORREÇÃO: Normalizar o tipo do campo (aceita field.type OU field.fieldType OU field.field_type)
+    const rawType = field.type || (field as any).fieldType || (field as any).field_type || '';
+    const fieldType = rawType.toUpperCase();
 
-    console.log(`[FormFiller] Rendering field: "${field.label}" with type: "${fieldType}"`);
+    // Debug: log para verificar os dados do campo
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[FormFiller] Field: "${field.label}" | Type: "${fieldType}" | ID: ${fieldId}`, field);
+    }
 
     switch (fieldType) {
       case 'SHORT_TEXT':
@@ -175,98 +206,146 @@ export function FormFiller() {
       case 'PHONE':
       case 'URL':
         return (
-          <div key={field.id} className="space-y-2">
-            <Label>
-              {field.label}{optionalLabel} {isRequired && <span className="text-red-500">*</span>}
+          <div key={fieldId} className="space-y-2">
+            <Label className={isReadOnly ? 'text-gray-700 font-semibold' : ''}>
+              {field.label}{!isReadOnly && optionalLabel} {!isReadOnly && isRequired && <span className="text-red-500">*</span>}
             </Label>
-            {field.helpText && <p className="text-sm text-gray-600">{field.helpText}</p>}
-            <Input
-              type={fieldType === 'EMAIL' ? 'email' : fieldType === 'URL' ? 'url' : 'text'}
-              value={(value as string) || ''}
-              onChange={(e) => setAnswers({ ...answers, [field.id]: e.target.value })}
-              placeholder={field.config?.placeholder || 'Texto de resposta curta'}
-              disabled={isReadOnly}
-              required={isRequired}
-            />
+            {field.helpText && !isReadOnly && <p className="text-sm text-gray-600">{field.helpText}</p>}
+            {isReadOnly ? (
+              <div className="p-3 bg-gray-100 rounded-md border border-gray-200 min-h-[40px]">
+                <span className="text-gray-800">{(value as string) || <em className="text-gray-400">Não respondido</em>}</span>
+              </div>
+            ) : (
+              <Input
+                type={fieldType === 'EMAIL' ? 'email' : fieldType === 'URL' ? 'url' : 'text'}
+                value={(value as string) || ''}
+                onChange={(e) => setAnswers({ ...answers, [fieldId]: e.target.value })}
+                placeholder={field.config?.placeholder || 'Texto de resposta curta'}
+                required={isRequired}
+              />
+            )}
           </div>
         );
 
       case 'LONG_TEXT':
       case 'TEXTAREA':
         return (
-          <div key={field.id} className="space-y-2">
-            <Label>
-              {field.label}{optionalLabel} {isRequired && <span className="text-red-500">*</span>}
+          <div key={fieldId} className="space-y-2">
+            <Label className={isReadOnly ? 'text-gray-700 font-semibold' : ''}>
+              {field.label}{!isReadOnly && optionalLabel} {!isReadOnly && isRequired && <span className="text-red-500">*</span>}
             </Label>
-            {field.helpText && <p className="text-sm text-gray-600">{field.helpText}</p>}
-            <Textarea
-              value={(value as string) || ''}
-              onChange={(e) => setAnswers({ ...answers, [field.id]: e.target.value })}
-              placeholder={field.config?.placeholder || 'Texto de resposta longa'}
-              disabled={isReadOnly}
-              required={isRequired}
-              rows={4}
-            />
+            {field.helpText && !isReadOnly && <p className="text-sm text-gray-600">{field.helpText}</p>}
+            {isReadOnly ? (
+              <div className="p-3 bg-gray-100 rounded-md border border-gray-200 min-h-[80px] whitespace-pre-wrap">
+                <span className="text-gray-800">{(value as string) || <em className="text-gray-400">Não respondido</em>}</span>
+              </div>
+            ) : (
+              <Textarea
+                value={(value as string) || ''}
+                onChange={(e) => setAnswers({ ...answers, [fieldId]: e.target.value })}
+                placeholder={field.config?.placeholder || 'Texto de resposta longa'}
+                required={isRequired}
+                rows={4}
+              />
+            )}
           </div>
         );
 
       case 'MULTIPLE_CHOICE':
       case 'RADIO':
         return (
-          <div key={field.id} className="space-y-2">
-            <Label>
-              {field.label}{optionalLabel} {isRequired && <span className="text-red-500">*</span>}
+          <div key={fieldId} className="space-y-2">
+            <Label className={isReadOnly ? 'text-gray-700 font-semibold' : ''}>
+              {field.label}{!isReadOnly && optionalLabel} {!isReadOnly && isRequired && <span className="text-red-500">*</span>}
             </Label>
-            {field.helpText && <p className="text-sm text-gray-600">{field.helpText}</p>}
-            <RadioGroup
-              value={(value as string) || ''}
-              onValueChange={(val) => setAnswers({ ...answers, [field.id]: val })}
-              disabled={isReadOnly}
-            >
-              {(field.config?.options || []).map((option: FormFieldOption) => (
-                <div key={option.id} className="flex items-center space-x-2">
-                  <RadioGroupItem value={option.value} id={`${field.id}-${option.id}`} />
-                  <Label htmlFor={`${field.id}-${option.id}`} className="font-normal cursor-pointer">
-                    {option.label}
-                  </Label>
-                </div>
-              ))}
-            </RadioGroup>
+            {field.helpText && !isReadOnly && <p className="text-sm text-gray-600">{field.helpText}</p>}
+            {isReadOnly ? (
+              <div className="p-3 bg-gray-100 rounded-md border border-gray-200">
+                {(() => {
+                  const selectedOption = (field.config?.options || []).find((opt: FormFieldOption) => opt.value === value);
+                  return selectedOption ? (
+                    <span className="text-gray-800 flex items-center">
+                      <span className="w-4 h-4 rounded-full bg-blue-500 mr-2 flex items-center justify-center">
+                        <span className="w-2 h-2 rounded-full bg-white"></span>
+                      </span>
+                      {selectedOption.label}
+                    </span>
+                  ) : (
+                    <em className="text-gray-400">Não respondido</em>
+                  );
+                })()}
+              </div>
+            ) : (
+              <RadioGroup
+                value={(value as string) || ''}
+                onValueChange={(val) => setAnswers({ ...answers, [fieldId]: val })}
+              >
+                {(field.config?.options || []).map((option: FormFieldOption) => (
+                  <div key={option.id} className="flex items-center space-x-2">
+                    <RadioGroupItem value={option.value} id={`${fieldId}-${option.id}`} />
+                    <Label htmlFor={`${fieldId}-${option.id}`} className="font-normal cursor-pointer">
+                      {option.label}
+                    </Label>
+                  </div>
+                ))}
+              </RadioGroup>
+            )}
           </div>
         );
 
       case 'CHECKBOXES':
       case 'CHECKBOX':
         return (
-          <div key={field.id} className="space-y-2">
-            <Label>
-              {field.label}{optionalLabel} {isRequired && <span className="text-red-500">*</span>}
+          <div key={fieldId} className="space-y-2">
+            <Label className={isReadOnly ? 'text-gray-700 font-semibold' : ''}>
+              {field.label}{!isReadOnly && optionalLabel} {!isReadOnly && isRequired && <span className="text-red-500">*</span>}
             </Label>
-            {field.helpText && <p className="text-sm text-gray-600">{field.helpText}</p>}
-            <div className="space-y-2">
-              {(field.config?.options || []).map((option: FormFieldOption) => {
-                const checked = Array.isArray(value) && value.includes(option.value);
-                return (
-                  <div key={option.id} className="flex items-center space-x-2">
-                    <Checkbox
-                      id={`${field.id}-${option.id}`}
-                      checked={checked}
-                      onCheckedChange={(checked) => {
-                        const currentValues = Array.isArray(value) ? value : [];
-                        const newValues = checked
-                          ? [...currentValues, option.value]
-                          : currentValues.filter((v: string) => v !== option.value);
-                        setAnswers({ ...answers, [field.id]: newValues });
-                      }}
-                      disabled={isReadOnly}
-                    />
-                    <Label htmlFor={`${field.id}-${option.id}`} className="font-normal cursor-pointer">
-                      {option.label}
-                    </Label>
+            {field.helpText && !isReadOnly && <p className="text-sm text-gray-600">{field.helpText}</p>}
+            {isReadOnly ? (
+              <div className="p-3 bg-gray-100 rounded-md border border-gray-200">
+                {Array.isArray(value) && value.length > 0 ? (
+                  <div className="space-y-1">
+                    {value.map((val: string) => {
+                      const option = (field.config?.options || []).find((opt: FormFieldOption) => opt.value === val);
+                      return (
+                        <div key={val} className="flex items-center text-gray-800">
+                          <span className="w-4 h-4 rounded bg-blue-500 mr-2 flex items-center justify-center">
+                            <span className="text-white text-xs">✓</span>
+                          </span>
+                          {option?.label || val}
+                        </div>
+                      );
+                    })}
                   </div>
-                );
-              })}
-            </div>
+                ) : (
+                  <em className="text-gray-400">Não respondido</em>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {(field.config?.options || []).map((option: FormFieldOption) => {
+                  const checked = Array.isArray(value) && value.includes(option.value);
+                  return (
+                    <div key={option.id} className="flex items-center space-x-2">
+                      <Checkbox
+                        id={`${fieldId}-${option.id}`}
+                        checked={checked}
+                        onCheckedChange={(checked) => {
+                          const currentValues = Array.isArray(value) ? value : [];
+                          const newValues = checked
+                            ? [...currentValues, option.value]
+                            : currentValues.filter((v: string) => v !== option.value);
+                          setAnswers({ ...answers, [fieldId]: newValues });
+                        }}
+                      />
+                      <Label htmlFor={`${fieldId}-${option.id}`} className="font-normal cursor-pointer">
+                        {option.label}
+                      </Label>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         );
 
@@ -276,34 +355,60 @@ export function FormFiller() {
         const options = Array.from({ length: maxValue - minValue + 1 }, (_, i) => minValue + i);
 
         return (
-          <div key={field.id} className="space-y-2">
-            <Label>
-              {field.label}{optionalLabel} {isRequired && <span className="text-red-500">*</span>}
+          <div key={fieldId} className="space-y-2">
+            <Label className={isReadOnly ? 'text-gray-700 font-semibold' : ''}>
+              {field.label}{!isReadOnly && optionalLabel} {!isReadOnly && isRequired && <span className="text-red-500">*</span>}
             </Label>
-            {field.helpText && <p className="text-sm text-gray-600">{field.helpText}</p>}
-            <div className="flex items-center gap-4">
-              {field.config?.minLabel && (
-                <span className="text-sm text-gray-600">{field.config.minLabel}</span>
-              )}
-              <RadioGroup
-                value={value?.toString() || ''}
-                onValueChange={(val) => setAnswers({ ...answers, [field.id]: parseInt(val) })}
-                disabled={isReadOnly}
-                className="flex gap-2"
-              >
-                {options.map((num) => (
-                  <div key={num} className="flex flex-col items-center">
-                    <RadioGroupItem value={num.toString()} id={`${field.id}-${num}`} />
-                    <Label htmlFor={`${field.id}-${num}`} className="font-normal text-sm mt-1">
-                      {num}
-                    </Label>
+            {field.helpText && !isReadOnly && <p className="text-sm text-gray-600">{field.helpText}</p>}
+            {isReadOnly ? (
+              <div className="p-3 bg-gray-100 rounded-md border border-gray-200">
+                <div className="flex items-center gap-4">
+                  {field.config?.minLabel && (
+                    <span className="text-sm text-gray-600">{field.config.minLabel}</span>
+                  )}
+                  <div className="flex gap-2">
+                    {options.map((num) => (
+                      <div key={num} className="flex flex-col items-center">
+                        <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
+                          value === num || value?.toString() === num.toString() 
+                            ? 'bg-blue-500 text-white' 
+                            : 'bg-gray-200 text-gray-400'
+                        }`}>
+                          {num}
+                        </span>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </RadioGroup>
-              {field.config?.maxLabel && (
-                <span className="text-sm text-gray-600">{field.config.maxLabel}</span>
-              )}
-            </div>
+                  {field.config?.maxLabel && (
+                    <span className="text-sm text-gray-600">{field.config.maxLabel}</span>
+                  )}
+                </div>
+                {!value && <em className="text-gray-400 block mt-2">Não respondido</em>}
+              </div>
+            ) : (
+              <div className="flex items-center gap-4">
+                {field.config?.minLabel && (
+                  <span className="text-sm text-gray-600">{field.config.minLabel}</span>
+                )}
+                <RadioGroup
+                  value={value?.toString() || ''}
+                  onValueChange={(val) => setAnswers({ ...answers, [fieldId]: parseInt(val) })}
+                  className="flex gap-2"
+                >
+                  {options.map((num) => (
+                    <div key={num} className="flex flex-col items-center">
+                      <RadioGroupItem value={num.toString()} id={`${fieldId}-${num}`} />
+                      <Label htmlFor={`${fieldId}-${num}`} className="font-normal text-sm mt-1">
+                        {num}
+                      </Label>
+                    </div>
+                  ))}
+                </RadioGroup>
+                {field.config?.maxLabel && (
+                  <span className="text-sm text-gray-600">{field.config.maxLabel}</span>
+                )}
+              </div>
+            )}
           </div>
         );
       }
@@ -311,98 +416,137 @@ export function FormFiller() {
       case 'DATE':
       case 'DATETIME':
         return (
-          <div key={field.id} className="space-y-2">
-            <Label>
-              {field.label}{optionalLabel} {isRequired && <span className="text-red-500">*</span>}
+          <div key={fieldId} className="space-y-2">
+            <Label className={isReadOnly ? 'text-gray-700 font-semibold' : ''}>
+              {field.label}{!isReadOnly && optionalLabel} {!isReadOnly && isRequired && <span className="text-red-500">*</span>}
             </Label>
-            {field.helpText && <p className="text-sm text-gray-600">{field.helpText}</p>}
-            <Input
-              type={fieldType === 'DATETIME' ? 'datetime-local' : 'date'}
-              value={(value as string) || ''}
-              onChange={(e) => setAnswers({ ...answers, [field.id]: e.target.value })}
-              disabled={isReadOnly}
-              required={isRequired}
-            />
+            {field.helpText && !isReadOnly && <p className="text-sm text-gray-600">{field.helpText}</p>}
+            {isReadOnly ? (
+              <div className="p-3 bg-gray-100 rounded-md border border-gray-200">
+                <span className="text-gray-800">
+                  {value ? (
+                    fieldType === 'DATETIME' 
+                      ? new Date(value as string).toLocaleString('pt-BR')
+                      : new Date(value as string).toLocaleDateString('pt-BR')
+                  ) : (
+                    <em className="text-gray-400">Não respondido</em>
+                  )}
+                </span>
+              </div>
+            ) : (
+              <Input
+                type={fieldType === 'DATETIME' ? 'datetime-local' : 'date'}
+                value={(value as string) || ''}
+                onChange={(e) => setAnswers({ ...answers, [fieldId]: e.target.value })}
+                required={isRequired}
+              />
+            )}
           </div>
         );
 
       case 'NUMBER':
         return (
-          <div key={field.id} className="space-y-2">
-            <Label>
-              {field.label}{optionalLabel} {isRequired && <span className="text-red-500">*</span>}
+          <div key={fieldId} className="space-y-2">
+            <Label className={isReadOnly ? 'text-gray-700 font-semibold' : ''}>
+              {field.label}{!isReadOnly && optionalLabel} {!isReadOnly && isRequired && <span className="text-red-500">*</span>}
             </Label>
-            {field.helpText && <p className="text-sm text-gray-600">{field.helpText}</p>}
-            <Input
-              type="number"
-              value={(value as number) || ''}
-              onChange={(e) => setAnswers({ ...answers, [field.id]: parseFloat(e.target.value) })}
-              placeholder={field.config?.placeholder}
-              disabled={isReadOnly}
-              required={isRequired}
-            />
+            {field.helpText && !isReadOnly && <p className="text-sm text-gray-600">{field.helpText}</p>}
+            {isReadOnly ? (
+              <div className="p-3 bg-gray-100 rounded-md border border-gray-200">
+                <span className="text-gray-800">{value !== undefined && value !== '' ? value : <em className="text-gray-400">Não respondido</em>}</span>
+              </div>
+            ) : (
+              <Input
+                type="number"
+                value={(value as number) || ''}
+                onChange={(e) => setAnswers({ ...answers, [fieldId]: parseFloat(e.target.value) })}
+                placeholder={field.config?.placeholder}
+                required={isRequired}
+              />
+            )}
           </div>
         );
 
       case 'DROPDOWN':
       case 'SELECT':
         return (
-          <div key={field.id} className="space-y-2">
-            <Label>
-              {field.label}{optionalLabel} {isRequired && <span className="text-red-500">*</span>}
+          <div key={fieldId} className="space-y-2">
+            <Label className={isReadOnly ? 'text-gray-700 font-semibold' : ''}>
+              {field.label}{!isReadOnly && optionalLabel} {!isReadOnly && isRequired && <span className="text-red-500">*</span>}
             </Label>
-            {field.helpText && <p className="text-sm text-gray-600">{field.helpText}</p>}
-            <Select
-              value={(value as string) || ''}
-              onValueChange={(val) => setAnswers({ ...answers, [field.id]: val })}
-              disabled={isReadOnly}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Selecione uma opção" />
-              </SelectTrigger>
-              <SelectContent>
-                {(field.config?.options || []).map((option: FormFieldOption) => (
-                  <SelectItem key={option.id} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {field.helpText && !isReadOnly && <p className="text-sm text-gray-600">{field.helpText}</p>}
+            {isReadOnly ? (
+              <div className="p-3 bg-gray-100 rounded-md border border-gray-200">
+                {(() => {
+                  const selectedOption = (field.config?.options || []).find((opt: FormFieldOption) => opt.value === value);
+                  return selectedOption ? (
+                    <span className="text-gray-800">{selectedOption.label}</span>
+                  ) : (
+                    <em className="text-gray-400">Não respondido</em>
+                  );
+                })()}
+              </div>
+            ) : (
+              <Select
+                value={(value as string) || ''}
+                onValueChange={(val) => setAnswers({ ...answers, [fieldId]: val })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione uma opção" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(field.config?.options || []).map((option: FormFieldOption) => (
+                    <SelectItem key={option.id} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
         );
 
       case 'FILE':
       case 'IMAGE':
         return (
-          <div key={field.id} className="space-y-2">
-            <Label>
-              {field.label}{optionalLabel} {isRequired && <span className="text-red-500">*</span>}
+          <div key={fieldId} className="space-y-2">
+            <Label className={isReadOnly ? 'text-gray-700 font-semibold' : ''}>
+              {field.label}{!isReadOnly && optionalLabel} {!isReadOnly && isRequired && <span className="text-red-500">*</span>}
             </Label>
-            {field.helpText && <p className="text-sm text-gray-600">{field.helpText}</p>}
-            <Input
-              type="file"
-              accept={fieldType === 'IMAGE' ? 'image/*' : undefined}
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) {
-                  setAnswers({ ...answers, [field.id]: file.name });
-                }
-              }}
-              disabled={isReadOnly}
-              required={isRequired}
-            />
-            <p className="text-xs text-gray-500">
-              Nota: Upload de arquivos será implementado em versão futura
-            </p>
+            {field.helpText && !isReadOnly && <p className="text-sm text-gray-600">{field.helpText}</p>}
+            {isReadOnly ? (
+              <div className="p-3 bg-gray-100 rounded-md border border-gray-200">
+                <span className="text-gray-800">{value || <em className="text-gray-400">Não respondido</em>}</span>
+              </div>
+            ) : (
+              <>
+                <Input
+                  type="file"
+                  accept={fieldType === 'IMAGE' ? 'image/*' : undefined}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      setAnswers({ ...answers, [fieldId]: file.name });
+                    }
+                  }}
+                  required={isRequired}
+                />
+                <p className="text-xs text-gray-500">
+                  Nota: Upload de arquivos será implementado em versão futura
+                </p>
+              </>
+            )}
           </div>
         );
 
       default:
-        console.warn(`[FormFiller] ⚠️ Unsupported field type: "${fieldType}" for field "${field.label}"`);
+        console.warn(`[FormFiller] ⚠️ Unsupported field type: "${fieldType}" for field "${field.label}"`, field);
         return (
-          <div key={field.id} className="space-y-2">
-            <Label>{field.label} (Tipo não suportado: {fieldType})</Label>
-            <p className="text-sm text-red-600">Este tipo de campo ainda não é suportado.</p>
+          <div key={fieldId} className="space-y-2 p-4 border border-red-200 rounded bg-red-50">
+            <Label className="text-red-700">{field.label} (Tipo não suportado: {fieldType || 'vazio'})</Label>
+            <p className="text-sm text-red-600">
+              Este tipo de campo não é reconhecido. Dados do campo: type="{field.type}", fieldType="{(field as any).fieldType}", field_type="{(field as any).field_type}"
+            </p>
           </div>
         );
     }
@@ -452,16 +596,31 @@ export function FormFiller() {
         </div>
 
         {/* Cabeçalho do Formulário */}
-        <Card className="bg-blue-50">
+        <Card className={isReadOnly ? "bg-green-50 border-green-200" : "bg-blue-50"}>
           <CardHeader>
-            <CardTitle className="text-2xl">{form.title}</CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-2xl">{form.title}</CardTitle>
+              {isReadOnly && (
+                <span className="px-3 py-1 bg-green-500 text-white text-sm font-semibold rounded-full">
+                  ✓ Enviado
+                </span>
+              )}
+            </div>
             {form.description && (
               <p className="text-gray-700 mt-2 whitespace-pre-wrap">{form.description}</p>
             )}
-            {isReadOnly && (
-              <div className="mt-4 p-3 bg-green-100 border border-green-300 rounded">
-                <p className="text-sm text-green-800 font-semibold">
-                  ✓ Este formulário já foi enviado. Você está visualizando suas respostas.
+            {isReadOnly && response && (
+              <div className="mt-4 p-4 bg-green-100 border border-green-300 rounded-lg">
+                <p className="text-sm text-green-800 font-semibold mb-1">
+                  📋 Este formulário já foi enviado
+                </p>
+                <p className="text-xs text-green-700">
+                  Enviado em: {response.submittedAt 
+                    ? new Date(response.submittedAt).toLocaleString('pt-BR') 
+                    : new Date(response.createdAt || '').toLocaleString('pt-BR')}
+                </p>
+                <p className="text-xs text-green-600 mt-2">
+                  As respostas abaixo são somente para visualização e não podem ser editadas.
                 </p>
               </div>
             )}
@@ -469,30 +628,34 @@ export function FormFiller() {
         </Card>
 
         {/* Campos sem seção */}
-        {form.fields.filter(f => !f.sectionId).length > 0 && (
+        {form.fields.filter(f => !f.sectionId || f.sectionId === 'undefined').length > 0 && (
           <Card>
             <CardContent className="pt-6 space-y-6">
               {form.fields
-                .filter(f => !f.sectionId)
-                .sort((a, b) => a.order - b.order)
+                .filter(f => !f.sectionId || f.sectionId === 'undefined')
+                .sort((a, b) => (a.order || 0) - (b.order || 0))
                 .map(renderField)}
             </CardContent>
           </Card>
         )}
 
         {/* Seções */}
-        {form.sections.sort((a, b) => a.order - b.order).map((section) => {
+        {form.sections.sort((a, b) => (a.order || 0) - (b.order || 0)).map((section) => {
+          // Normalizar IDs para comparação (podem ser string ou number)
+          const sectionId = String(section.id);
           const sectionFields = form.fields
-            .filter(f => f.sectionId === section.id)
-            .sort((a, b) => a.order - b.order);
+            .filter(f => String(f.sectionId) === sectionId)
+            .sort((a, b) => (a.order || 0) - (b.order || 0));
 
-          console.log(`[FormFiller] Rendering section: "${section.title}" (ID: ${section.id})`);
-          console.log(`[FormFiller] Fields found for this section: ${sectionFields.length}`);
-          sectionFields.forEach(f => console.log(`  - Field: "${f.label}" (Type: ${(f as any).field_type || f.type})`));
+          if (process.env.NODE_ENV === 'development') {
+            console.log(`[FormFiller] Section: "${section.title}" (ID: ${sectionId}) | Fields: ${sectionFields.length}`);
+          }
 
           // Só renderizar seção se houver campos
           if (sectionFields.length === 0) {
-            console.warn(`[FormFiller] ⚠ Section "${section.title}" has NO fields - skipping render`);
+            if (process.env.NODE_ENV === 'development') {
+              console.warn(`[FormFiller] ⚠ Section "${section.title}" has NO fields`);
+            }
             return null;
           }
 

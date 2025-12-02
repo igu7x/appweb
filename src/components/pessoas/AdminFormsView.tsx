@@ -97,12 +97,26 @@ export function AdminFormsView() {
   const handleDeleteForm = async (id: string) => {
     if (confirm('Tem certeza que deseja excluir este formulário? Esta ação não pode ser desfeita e todas as respostas serão perdidas.')) {
       try {
+        console.log('[AdminFormsView] Excluindo formulário:', id);
         await formApi.deleteForm(id);
+        console.log('[AdminFormsView] Formulário excluído com sucesso');
         await loadForms();
         alert('Formulário excluído com sucesso.');
-      } catch (error) {
-        console.error('Erro ao excluir formulário:', error);
-        alert('Erro ao excluir formulário.');
+      } catch (error: any) {
+        console.error('[AdminFormsView] Erro ao excluir formulário:', error);
+        
+        // Tratamento específico de erros
+        if (error.status === 404) {
+          alert('Formulário não encontrado. Pode já ter sido excluído.');
+          await loadForms(); // Recarregar lista
+        } else if (error.status === 403) {
+          alert('Você não tem permissão para excluir este formulário.');
+        } else if (error.status === 401) {
+          alert('Sessão expirada. Faça login novamente.');
+        } else {
+          const errorMessage = error.message || 'Erro desconhecido';
+          alert(`Erro ao excluir formulário: ${errorMessage}`);
+        }
       }
     }
   };

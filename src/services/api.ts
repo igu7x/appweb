@@ -1,10 +1,8 @@
 /**
  * API REFATORADA - PostgreSQL Backend
  * 
- * Este arquivo substitui o uso de localStorage por chamadas HTTP ao backend PostgreSQL
- * 
- * IMPORTANTE: Renomeie o arquivo api.ts antigo para api.old.ts
- * E renomeie este arquivo para api.ts
+ * Este arquivo fornece funções para comunicação com o backend PostgreSQL.
+ * Todas as funções propagam erros para tratamento adequado nos componentes.
  */
 
 import {
@@ -17,19 +15,59 @@ import {
     ExecutionControl,
     Directorate
 } from '@/types';
-import { apiClient } from './apiClient';
+import { apiClient, ApiError } from './apiClient';
 
 // ============================================================
-// DELAY SIMULADO (para UX consistente)
+// HELPER - Hash SHA-256 (compatibilidade com backend)
 // ============================================================
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+async function hashPassword(password: string): Promise<string> {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(password);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    return hashHex;
+}
+
+// ============================================================
+// API DE AUTENTICAÇÃO
+// ============================================================
+
+export async function login(email: string, password: string): Promise<User> {
+    // Hash da senha (SHA-256) - manter compatibilidade com backend
+    const passwordHash = await hashPassword(password);
+
+    const user = await apiClient.post<User>('/api/auth/login', {
+        email,
+        password: passwordHash
+    });
+
+    // TODO: Quando backend retornar token, salvar aqui
+    // if (response.token) {
+    //     localStorage.setItem('auth_token', response.token);
+    // }
+
+    return user;
+}
+
+export async function logout(): Promise<void> {
+    try {
+        await apiClient.post('/api/auth/logout', {});
+    } catch (error) {
+        // Ignorar erro de logout - limpar dados locais de qualquer forma
+        console.warn('Erro no logout:', error);
+    } finally {
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('user');
+    }
+}
 
 // ============================================================
 // API DE USUÁRIOS
 // ============================================================
 
 export async function getUsers(): Promise<User[]> {
-    await delay(200); // Delay para UX
     return apiClient.get<User[]>('/api/users');
 }
 
@@ -37,8 +75,10 @@ export async function getUserById(id: string): Promise<User | null> {
     try {
         return await apiClient.get<User>(`/api/users/${id}`);
     } catch (error) {
-        console.error('Error fetching user:', error);
-        return null;
+        if (error instanceof ApiError && error.status === 404) {
+            return null;
+        }
+        throw error;
     }
 }
 
@@ -54,49 +94,21 @@ export async function deleteUser(id: string): Promise<void> {
     await apiClient.delete<void>(`/api/users/${id}`);
 }
 
-export async function login(email: string, password: string): Promise<User | null> {
-    try {
-        // Hash da senha (SHA-256) - manter compatibilidade
-        const passwordHash = await hashPassword(password);
-
-        const user = await apiClient.post<User>('/api/auth/login', {
-            email,
-            password: passwordHash
-        });
-
-        return user;
-    } catch (error) {
-        console.error('Login error:', error);
-        return null;
-    }
-}
-
-// Helper para hash SHA-256 (mantém compatibilidade)
-async function hashPassword(password: string): Promise<string> {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(password);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-    return hashHex;
-}
-
 // ============================================================
 // API DE OBJECTIVES
 // ============================================================
 
 export async function getObjectives(): Promise<Objective[]> {
-    await delay(200);
     return apiClient.get<Objective[]>('/api/objectives');
 }
 
 export async function getObjectiveById(id: string): Promise<Objective | null> {
     try {
         const objectives = await getObjectives();
-        return objectives.find(obj => obj.id === id) || null;
+        return objectives.find(obj => String(obj.id) === String(id)) || null;
     } catch (error) {
         console.error('Error fetching objective:', error);
-        return null;
+        throw error;
     }
 }
 
@@ -117,17 +129,16 @@ export async function deleteObjective(id: string): Promise<void> {
 // ============================================================
 
 export async function getKeyResults(): Promise<KeyResult[]> {
-    await delay(200);
     return apiClient.get<KeyResult[]>('/api/key-results');
 }
 
 export async function getKeyResultById(id: string): Promise<KeyResult | null> {
     try {
         const krs = await getKeyResults();
-        return krs.find(kr => kr.id === id) || null;
+        return krs.find(kr => String(kr.id) === String(id)) || null;
     } catch (error) {
         console.error('Error fetching key result:', error);
-        return null;
+        throw error;
     }
 }
 
@@ -148,17 +159,16 @@ export async function deleteKeyResult(id: string): Promise<void> {
 // ============================================================
 
 export async function getInitiatives(): Promise<Initiative[]> {
-    await delay(200);
     return apiClient.get<Initiative[]>('/api/initiatives');
 }
 
 export async function getInitiativeById(id: string): Promise<Initiative | null> {
     try {
         const initiatives = await getInitiatives();
-        return initiatives.find(init => init.id === id) || null;
+        return initiatives.find(init => String(init.id) === String(id)) || null;
     } catch (error) {
         console.error('Error fetching initiative:', error);
-        return null;
+        throw error;
     }
 }
 
@@ -179,17 +189,16 @@ export async function deleteInitiative(id: string): Promise<void> {
 // ============================================================
 
 export async function getPrograms(): Promise<Program[]> {
-    await delay(200);
     return apiClient.get<Program[]>('/api/programs');
 }
 
 export async function getProgramById(id: string): Promise<Program | null> {
     try {
         const programs = await getPrograms();
-        return programs.find(prog => prog.id === id) || null;
+        return programs.find(prog => String(prog.id) === String(id)) || null;
     } catch (error) {
         console.error('Error fetching program:', error);
-        return null;
+        throw error;
     }
 }
 
@@ -218,12 +227,15 @@ export async function getDirectorates(): Promise<Directorate[]> {
 // ============================================================
 
 export async function getProgramInitiatives(): Promise<ProgramInitiative[]> {
-    await delay(200);
     return apiClient.get<ProgramInitiative[]>('/api/program-initiatives');
 }
 
 export async function createProgramInitiative(data: Omit<ProgramInitiative, 'id'>): Promise<ProgramInitiative> {
     return apiClient.post<ProgramInitiative>('/api/program-initiatives', data);
+}
+
+export async function updateProgramInitiative(id: string, data: Partial<ProgramInitiative>): Promise<ProgramInitiative> {
+    return apiClient.put<ProgramInitiative>(`/api/program-initiatives/${id}`, data);
 }
 
 export async function deleteProgramInitiative(id: string): Promise<void> {
@@ -235,7 +247,6 @@ export async function deleteProgramInitiative(id: string): Promise<void> {
 // ============================================================
 
 export async function getExecutionControls(): Promise<ExecutionControl[]> {
-    await delay(200);
     return apiClient.get<ExecutionControl[]>('/api/execution-controls');
 }
 
@@ -256,13 +267,16 @@ export async function deleteExecutionControl(id: string): Promise<void> {
 // ============================================================
 
 export const api = {
+    // Auth
+    login,
+    logout,
+
     // Users
     getUsers,
     getUserById,
     createUser,
     updateUser,
     deleteUser,
-    login,
 
     // Objectives
     getObjectives,
@@ -298,6 +312,7 @@ export const api = {
     // Program Initiatives
     getProgramInitiatives,
     createProgramInitiative,
+    updateProgramInitiative,
     deleteProgramInitiative,
 
     // Execution Controls

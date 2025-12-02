@@ -41,6 +41,11 @@ export function MonitoramentoOKRs() {
   const [editingKR, setEditingKR] = useState<KeyResult | null>(null);
   const [editingKRStatus, setEditingKRStatus] = useState<KeyResult | null>(null);
   const [selectedObjectiveId, setSelectedObjectiveId] = useState<string>('');
+  
+  // Estados de loading e erro
+  const [savingObjective, setSavingObjective] = useState(false);
+  const [savingKR, setSavingKR] = useState(false);
+  const [savingStatus, setSavingStatus] = useState(false);
 
   // Apenas ADMIN pode criar/editar/excluir
   const canFullEdit = user?.role === 'ADMIN';
@@ -58,26 +63,63 @@ export function MonitoramentoOKRs() {
 
   const handleSaveObjective = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    
+    console.log('[MonitoramentoOKRs] handleSaveObjective chamado');
+    
     const formData = new FormData(e.currentTarget);
 
+    const code = formData.get('code') as string;
+    const title = formData.get('title') as string;
+    const description = formData.get('description') as string;
+
+    // Validação no frontend
+    if (!code?.trim() || !title?.trim()) {
+      alert('Por favor, preencha os campos obrigatórios: Código e Título');
+      return;
+    }
+
     const data = {
-      code: formData.get('code') as string,
-      title: formData.get('title') as string,
-      description: formData.get('description') as string,
+      code: code.trim(),
+      title: title.trim(),
+      description: description?.trim() || '',
       directorate: selectedDirectorate
     };
 
+    console.log('[MonitoramentoOKRs] Dados a enviar:', data);
+    
+    setSavingObjective(true);
+
     try {
       if (editingObjective) {
+        console.log('[MonitoramentoOKRs] Atualizando objetivo:', editingObjective.id);
         await api.updateObjective(editingObjective.id, data);
+        alert('Objetivo atualizado com sucesso!');
       } else {
-        await api.createObjective(data);
+        console.log('[MonitoramentoOKRs] Criando novo objetivo');
+        const result = await api.createObjective(data);
+        console.log('[MonitoramentoOKRs] Objetivo criado:', result);
+        alert('Objetivo criado com sucesso!');
       }
+      
       await refreshData();
       setDialogOpen(false);
       setEditingObjective(null);
-    } catch (error) {
-      console.error('Erro ao salvar objetivo:', error);
+      
+      // Limpar formulário (resetar o form)
+      (e.target as HTMLFormElement).reset();
+    } catch (error: any) {
+      console.error('[MonitoramentoOKRs] Erro ao salvar objetivo:', error);
+      
+      // Mostrar mensagem de erro específica
+      if (error.status === 409) {
+        alert('Erro: Já existe um objetivo com este código nesta diretoria.');
+      } else if (error.status === 400) {
+        alert('Erro: Dados inválidos. Verifique os campos e tente novamente.');
+      } else {
+        alert(`Erro ao salvar objetivo: ${error.message || 'Erro desconhecido'}`);
+      }
+    } finally {
+      setSavingObjective(false);
     }
   };
 
@@ -94,29 +136,46 @@ export function MonitoramentoOKRs() {
 
   const handleSaveKR = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    
     const formData = new FormData(e.currentTarget);
 
+    const objectiveId = formData.get('objectiveId') as string;
+    const code = formData.get('code') as string;
+    const description = formData.get('description') as string;
+
+    if (!objectiveId || !code?.trim() || !description?.trim()) {
+      alert('Por favor, preencha todos os campos obrigatórios.');
+      return;
+    }
+
     const data = {
-      objectiveId: formData.get('objectiveId') as string,
-      code: formData.get('code') as string,
-      description: formData.get('description') as string,
+      objectiveId,
+      code: code.trim(),
+      description: description.trim(),
       status: formData.get('status') as OKRStatus,
       situation: (formData.get('situation') as OKRSituation) || 'NO_PRAZO',
       deadline: formData.get('deadline') as string,
       directorate: selectedDirectorate
     };
 
+    setSavingKR(true);
+
     try {
       if (editingKR) {
         await api.updateKeyResult(editingKR.id, data);
+        alert('Key Result atualizado com sucesso!');
       } else {
         await api.createKeyResult(data);
+        alert('Key Result criado com sucesso!');
       }
       await refreshData();
       setKrDialogOpen(false);
       setEditingKR(null);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Erro ao salvar KR:', error);
+      alert(`Erro ao salvar Key Result: ${error.message || 'Erro desconhecido'}`);
+    } finally {
+      setSavingKR(false);
     }
   };
 
@@ -130,13 +189,19 @@ export function MonitoramentoOKRs() {
       status: formData.get('status') as OKRStatus
     };
 
+    setSavingStatus(true);
+
     try {
       await api.updateKeyResult(editingKRStatus.id, data);
+      alert('Status atualizado com sucesso!');
       await refreshData();
       setStatusDialogOpen(false);
       setEditingKRStatus(null);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Erro ao atualizar status:', error);
+      alert(`Erro ao atualizar status: ${error.message || 'Erro desconhecido'}`);
+    } finally {
+      setSavingStatus(false);
     }
   };
 
@@ -206,7 +271,8 @@ export function MonitoramentoOKRs() {
               </thead>
               <tbody>
                 {filteredObjectives.map((obj) => {
-                  const objKRs = filteredKeyResults.filter(kr => kr.objectiveId === obj.id);
+                  // Converter IDs para string para garantir comparação correta
+                  const objKRs = filteredKeyResults.filter(kr => String(kr.objectiveId) === String(obj.id));
 
                   return (
                     <>
@@ -314,7 +380,9 @@ export function MonitoramentoOKRs() {
       </Card>
 
       {/* Dialog para Objetivo - Apenas ADMIN */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <Dialog open={dialogOpen} onOpenChange={(open) => {
+        if (!savingObjective) setDialogOpen(open);
+      }}>
         <DialogContent className="max-w-lg">
           <form onSubmit={handleSaveObjective}>
             <DialogHeader>
@@ -325,30 +393,59 @@ export function MonitoramentoOKRs() {
             </DialogHeader>
             <div className="space-y-4 py-4">
               <div>
-                <Label htmlFor="code">Código</Label>
-                <Input id="code" name="code" defaultValue={editingObjective?.code} required />
+                <Label htmlFor="code">Código <span className="text-red-500">*</span></Label>
+                <Input 
+                  id="code" 
+                  name="code" 
+                  defaultValue={editingObjective?.code} 
+                  required 
+                  disabled={savingObjective}
+                  placeholder="Ex: OE01"
+                />
               </div>
               <div>
-                <Label htmlFor="title">Título</Label>
-                <Input id="title" name="title" defaultValue={editingObjective?.title} required />
+                <Label htmlFor="title">Título <span className="text-red-500">*</span></Label>
+                <Input 
+                  id="title" 
+                  name="title" 
+                  defaultValue={editingObjective?.title} 
+                  required 
+                  disabled={savingObjective}
+                  placeholder="Ex: Melhorar a eficiência operacional"
+                />
               </div>
               <div>
                 <Label htmlFor="description">Descrição</Label>
-                <Textarea id="description" name="description" defaultValue={editingObjective?.description} />
+                <Textarea 
+                  id="description" 
+                  name="description" 
+                  defaultValue={editingObjective?.description} 
+                  disabled={savingObjective}
+                  placeholder="Descreva o objetivo estratégico..."
+                />
               </div>
             </div>
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
+              <Button 
+                type="button" 
+                variant="outline" 
+                onClick={() => setDialogOpen(false)}
+                disabled={savingObjective}
+              >
                 Cancelar
               </Button>
-              <Button type="submit">Salvar</Button>
+              <Button type="submit" disabled={savingObjective}>
+                {savingObjective ? 'Salvando...' : 'Salvar'}
+              </Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
 
       {/* Dialog para KR - Apenas ADMIN */}
-      <Dialog open={krDialogOpen} onOpenChange={setKrDialogOpen}>
+      <Dialog open={krDialogOpen} onOpenChange={(open) => {
+        if (!savingKR) setKrDialogOpen(open);
+      }}>
         <DialogContent className="max-w-lg">
           <form onSubmit={handleSaveKR}>
             <DialogHeader>
@@ -359,8 +456,8 @@ export function MonitoramentoOKRs() {
             </DialogHeader>
             <div className="space-y-4 py-4">
               <div>
-                <Label htmlFor="objectiveId">Objetivo</Label>
-                <Select name="objectiveId" defaultValue={editingKR?.objectiveId || selectedObjectiveId} required>
+                <Label htmlFor="objectiveId">Objetivo <span className="text-red-500">*</span></Label>
+                <Select name="objectiveId" defaultValue={editingKR?.objectiveId || selectedObjectiveId} required disabled={savingKR}>
                   <SelectTrigger>
                     <SelectValue placeholder="Selecione um objetivo" />
                   </SelectTrigger>
@@ -372,16 +469,16 @@ export function MonitoramentoOKRs() {
                 </Select>
               </div>
               <div>
-                <Label htmlFor="code">Código</Label>
-                <Input id="code" name="code" defaultValue={editingKR?.code} required />
+                <Label htmlFor="code">Código <span className="text-red-500">*</span></Label>
+                <Input id="code" name="code" defaultValue={editingKR?.code} required disabled={savingKR} placeholder="Ex: KR01" />
               </div>
               <div>
-                <Label htmlFor="description">Descrição</Label>
-                <Textarea id="description" name="description" defaultValue={editingKR?.description} required />
+                <Label htmlFor="description">Descrição <span className="text-red-500">*</span></Label>
+                <Textarea id="description" name="description" defaultValue={editingKR?.description} required disabled={savingKR} placeholder="Descreva o Key Result..." />
               </div>
               <div>
                 <Label htmlFor="status">Status</Label>
-                <Select name="status" defaultValue={editingKR?.status || 'NAO_INICIADO'} required>
+                <Select name="status" defaultValue={editingKR?.status || 'NAO_INICIADO'} required disabled={savingKR}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -409,22 +506,26 @@ export function MonitoramentoOKRs() {
                 </p>
               </div>
               <div>
-                <Label htmlFor="deadline">Prazo</Label>
-                <Input id="deadline" name="deadline" placeholder="Ex: julho - 2025" defaultValue={editingKR?.deadline} required />
+                <Label htmlFor="deadline">Prazo <span className="text-red-500">*</span></Label>
+                <Input id="deadline" name="deadline" placeholder="Ex: julho - 2025" defaultValue={editingKR?.deadline} required disabled={savingKR} />
               </div>
             </div>
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setKrDialogOpen(false)}>
+              <Button type="button" variant="outline" onClick={() => setKrDialogOpen(false)} disabled={savingKR}>
                 Cancelar
               </Button>
-              <Button type="submit">Salvar</Button>
+              <Button type="submit" disabled={savingKR}>
+                {savingKR ? 'Salvando...' : 'Salvar'}
+              </Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
 
       {/* Dialog para alterar STATUS - GESTOR e ADMIN */}
-      <Dialog open={statusDialogOpen} onOpenChange={setStatusDialogOpen}>
+      <Dialog open={statusDialogOpen} onOpenChange={(open) => {
+        if (!savingStatus) setStatusDialogOpen(open);
+      }}>
         <DialogContent className="max-w-md">
           <form onSubmit={handleSaveKRStatus}>
             <DialogHeader>
@@ -436,7 +537,7 @@ export function MonitoramentoOKRs() {
             <div className="space-y-4 py-4">
               <div>
                 <Label htmlFor="status">Novo Status</Label>
-                <Select name="status" defaultValue={editingKRStatus?.status} required>
+                <Select name="status" defaultValue={editingKRStatus?.status} required disabled={savingStatus}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -449,10 +550,12 @@ export function MonitoramentoOKRs() {
               </div>
             </div>
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setStatusDialogOpen(false)}>
+              <Button type="button" variant="outline" onClick={() => setStatusDialogOpen(false)} disabled={savingStatus}>
                 Cancelar
               </Button>
-              <Button type="submit">Salvar</Button>
+              <Button type="submit" disabled={savingStatus}>
+                {savingStatus ? 'Salvando...' : 'Salvar'}
+              </Button>
             </DialogFooter>
           </form>
         </DialogContent>
