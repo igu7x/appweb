@@ -36,14 +36,12 @@ export function UserFormsView() {
       console.log('[UserFormsView] Current user:', user);
 
       const [formsData, responsesData] = await Promise.all([
-        // Passar filterByVisibility: true para aplicar filtro correto
         formApi.getForms(selectedDirectorate, { filterByVisibility: true, isAdmin: false }),
         user ? formApi.getUserResponses(user.id, selectedDirectorate) : []
       ]);
 
       console.log('[UserFormsView] Forms received from API:', formsData.length);
 
-      // Apenas formulários publicados (já vem filtrado por visibilidade do API)
       const publishedForms = formsData.filter(f => f.status === 'PUBLISHED');
       console.log('[UserFormsView] Published forms:', publishedForms.length);
 
@@ -72,7 +70,14 @@ export function UserFormsView() {
   };
 
   const getFormStatus = (formId: string) => {
-    const response = responses.find(r => r.formId === formId);
+    // ✅ CORREÇÃO CRÍTICA: Converter IDs para string para garantir comparação correta
+    const response = responses.find(r => String(r.formId) === String(formId));
+
+    console.log(`[DEBUG] Getting status for form ${formId} (${typeof formId})`);
+    if (response) {
+      console.log(`[DEBUG] Found response with formId: ${response.formId} (${typeof response.formId}), status: ${response.status}`);
+    }
+
     if (!response) return 'NOT_STARTED';
     if (response.status === 'SUBMITTED') return 'SUBMITTED';
     return 'IN_PROGRESS';
@@ -107,8 +112,13 @@ export function UserFormsView() {
   };
 
   const handleOpenForm = (formId: string) => {
-    const response = responses.find(r => r.formId === formId);
-    if (response) {
+    // ✅ CORREÇÃO CRÍTICA: Converter IDs para string
+    const response = responses.find(r => String(r.formId) === String(formId));
+
+    // ✅ VALIDAÇÃO: Se já foi submetido, apenas visualizar (read-only)
+    if (response && response.status === 'SUBMITTED') {
+      navigate(`/pessoas/responder/${formId}?responseId=${response.id}`);
+    } else if (response) {
       navigate(`/pessoas/responder/${formId}?responseId=${response.id}`);
     } else {
       navigate(`/pessoas/responder/${formId}`);
@@ -185,7 +195,7 @@ export function UserFormsView() {
                   <div className="flex items-center justify-between">
                     <div className="text-sm text-gray-600">
                       {isSubmitted ? (
-                        <span>Enviado em: {new Date(responses.find(r => r.formId === form.id)?.submittedAt || '').toLocaleDateString('pt-BR')}</span>
+                        <span>Enviado em: {new Date(responses.find(r => String(r.formId) === String(form.id))?.submittedAt || '').toLocaleDateString('pt-BR')}</span>
                       ) : (
                         <span>Clique para {status === 'IN_PROGRESS' ? 'continuar' : 'iniciar'} o preenchimento</span>
                       )}

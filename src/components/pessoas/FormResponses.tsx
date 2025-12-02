@@ -1,15 +1,9 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Download, Eye, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import {
   Table,
   TableBody,
@@ -18,31 +12,36 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Layout } from '@/components/layout/Layout';
 import { formApi } from '@/services/formApi';
 import { FormWithDetails, ResponseWithAnswers, FormField } from '@/types';
-import { Layout } from '@/components/layout/Layout';
 
 export function FormResponses() {
-  const navigate = useNavigate();
   const { id } = useParams();
-
+  const navigate = useNavigate();
   const [form, setForm] = useState<FormWithDetails | null>(null);
   const [responses, setResponses] = useState<ResponseWithAnswers[]>([]);
-  const [selectedResponse, setSelectedResponse] = useState<ResponseWithAnswers | null>(null);
   const [loading, setLoading] = useState(true);
+  const [selectedResponse, setSelectedResponse] = useState<ResponseWithAnswers | null>(null);
 
   useEffect(() => {
-    loadData();
+    if (id) {
+      loadData(id);
+    }
   }, [id]);
 
-  const loadData = async () => {
-    if (!id) return;
-
+  const loadData = async (formId: string) => {
     try {
       setLoading(true);
       const [formData, responsesData] = await Promise.all([
-        formApi.getFormById(id),
-        formApi.getFormResponses(id)
+        formApi.getFormById(formId),
+        formApi.getFormResponses(formId)
       ]);
 
       if (formData) {
@@ -50,7 +49,7 @@ export function FormResponses() {
       }
       setResponses(responsesData);
     } catch (error) {
-      console.error('Erro ao carregar respostas:', error);
+      console.error('Erro ao carregar dados:', error);
     } finally {
       setLoading(false);
     }
@@ -72,39 +71,71 @@ export function FormResponses() {
         ];
 
         form.fields.forEach(field => {
-          const answer = response.answers.find(a => a.fieldId === field.id);
+          // ✅ CORREÇÃO: Converter IDs para string para garantir comparação correta
+          const answer = response.answers.find(a => String(a.fieldId) === String(field.id));
           let value = '';
 
           if (answer) {
-            if (Array.isArray(answer.value)) {
-              value = answer.value.join(', ');
-            } else {
-              value = String(answer.value);
+            // ✅ CORREÇÃO: Respeitar o tipo do campo
+            const fieldType = (field.type || (field as any).field_type || '').toUpperCase();
+
+            switch (fieldType) {
+              case 'CHECKBOXES':
+              case 'CHECKBOX':
+                // Múltiplas opções selecionadas
+                if (Array.isArray(answer.value)) {
+                  value = answer.value.join('; ');
+                } else {
+                  value = String(answer.value);
+                }
+                break;
+
+              case 'DATE':
+                try {
+                  value = new Date(answer.value as string).toLocaleDateString('pt-BR');
+                } catch {
+                  value = String(answer.value);
+                }
+                break;
+
+              default:
+                // Texto simples
+                if (Array.isArray(answer.value)) {
+                  value = answer.value.join('; ');
+                } else {
+                  value = String(answer.value);
+                }
+                break;
             }
           }
 
-          row.push(value);
+          // Escapar aspas duplas e envolver em aspas
+          row.push(`"${String(value).replace(/"/g, '""')}"`);
         });
 
-        return row;
+        return row.join(',');
       });
 
-    // Criar CSV
+    // Juntar tudo
     const csvContent = [
       headers.join(','),
-      ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+      ...rows
     ].join('\n');
 
-    // Download
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    // Criar blob e baixar (com BOM para Excel)
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `${form.title.replace(/\s+/g, '_')}_respostas.csv`;
+    link.setAttribute('href', url);
+    link.setAttribute('download', `respostas_${form.title}_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
     link.click();
+    document.body.removeChild(link);
   };
 
   const getFieldValue = (field: FormField, response: ResponseWithAnswers): string => {
-    const answer = response.answers.find(a => a.fieldId === field.id);
+    // ✅ CORREÇÃO CRÍTICA: Converter IDs para string para garantir comparação correta
+    const answer = response.answers.find(a => String(a.fieldId) === String(field.id));
 
     if (!answer) {
       return '(não respondido)';
@@ -283,7 +314,7 @@ export function FormResponses() {
                 {/* Informações do Respondente */}
                 <Card className="bg-blue-50">
                   <CardContent className="pt-6">
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-3 gap-4">
                       <div>
                         <p className="text-sm text-gray-600">Usuário</p>
                         <p className="font-semibold">{selectedResponse.userName}</p>
@@ -293,6 +324,14 @@ export function FormResponses() {
                         <p className="font-semibold">
                           {selectedResponse.submittedAt
                             ? new Date(selectedResponse.submittedAt).toLocaleString('pt-BR')
+                            : '-'}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-600">Data de Atualização</p>
+                        <p className="font-semibold">
+                          {selectedResponse.updatedAt
+                            ? new Date(selectedResponse.updatedAt).toLocaleString('pt-BR')
                             : '-'}
                         </p>
                       </div>
@@ -313,7 +352,7 @@ export function FormResponses() {
                         .map((field) => (
                           <div key={field.id} className="border-b pb-3 last:border-b-0">
                             <p className="text-sm font-semibold text-gray-700 mb-1">
-                              {field.label} {field.required && <span className="text-red-500">*</span>}
+                              {field.label} (ID: {field.id}) {field.required && <span className="text-red-500">*</span>}
                             </p>
                             <p className="text-gray-900">
                               {getFieldValue(field, selectedResponse)}
@@ -343,7 +382,7 @@ export function FormResponses() {
                         {sectionFields.map((field) => (
                           <div key={field.id} className="border-b pb-3 last:border-b-0">
                             <p className="text-sm font-semibold text-gray-700 mb-1">
-                              {field.label} {field.required && <span className="text-red-500">*</span>}
+                              {field.label} (ID: {field.id}) {field.required && <span className="text-red-500">*</span>}
                             </p>
                             <p className="text-gray-900">
                               {getFieldValue(field, selectedResponse)}

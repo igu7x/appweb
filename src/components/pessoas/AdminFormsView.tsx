@@ -113,7 +113,15 @@ export function AdminFormsView() {
       PUBLISHED: { label: 'Publicado', className: 'bg-green-500 hover:bg-green-600 text-white border-0' },
       ARCHIVED: { label: 'Arquivado', className: 'bg-orange-400 hover:bg-orange-500 text-white border-0' }
     };
-    const { label, className } = config[status];
+
+    // ✅ CORREÇÃO: Verificação de segurança para evitar destructuring de undefined
+    const statusConfig = config[status];
+    if (!statusConfig) {
+      console.warn(`Status inválido: ${status}, usando fallback`);
+      return <Badge className="bg-gray-400 hover:bg-gray-500 text-white border-0">Desconhecido</Badge>;
+    }
+
+    const { label, className } = statusConfig;
     return <Badge className={className}>{label}</Badge>;
   };
 

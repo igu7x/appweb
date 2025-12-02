@@ -16,7 +16,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { formApi } from '@/services/formApi';
-import { FormWithDetails, FormResponse, FormField, FormFieldOption } from '@/types';
+import { FormWithDetails, ResponseWithAnswers, FormField, FormFieldOption } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { Layout } from '@/components/layout/Layout';
 
@@ -27,7 +27,7 @@ export function FormFiller() {
   const { user } = useAuth();
 
   const [form, setForm] = useState<FormWithDetails | null>(null);
-  const [response, setResponse] = useState<FormResponse | null>(null);
+  const [response, setResponse] = useState<ResponseWithAnswers | null>(null);
   const [answers, setAnswers] = useState<Record<string, string | string[] | number>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -63,7 +63,7 @@ export function FormFiller() {
 
           // Carregar respostas existentes
           const answersMap: Record<string, string | string[] | number> = {};
-          existingResponse.answers.forEach(answer => {
+          existingResponse.answers?.forEach(answer => {
             answersMap[answer.fieldId] = answer.value;
           });
           setAnswers(answersMap);
@@ -83,27 +83,22 @@ export function FormFiller() {
     try {
       setSaving(true);
 
-      let responseId = response?.id;
-
-      if (!responseId) {
-        const newResponse = await formApi.createResponse({
-          formId: form.id,
-          userId: user.id,
-          userName: user.name,
-          status: 'DRAFT'
-        });
-        responseId = newResponse.id;
-        setResponse(newResponse);
-      }
-
-      // Salvar respostas
+      // Preparar respostas
       const answersToSave = Object.entries(answers).map(([fieldId, value]) => ({
-        responseId: responseId!,
         fieldId,
         value
       }));
 
-      await formApi.saveAnswers(responseId, answersToSave);
+      // Enviar tudo junto (backend lida com update se já existir)
+      const responseData = await formApi.createResponse({
+        formId: form.id,
+        userId: user.id,
+        userName: user.name,
+        status: 'DRAFT',
+        answers: answersToSave
+      });
+
+      setResponse(responseData as any);
       alert('Rascunho salvo com sucesso!');
     } catch (error) {
       console.error('Erro ao salvar rascunho:', error);
@@ -132,37 +127,32 @@ export function FormFiller() {
     try {
       setSaving(true);
 
-      let responseId = response?.id;
-
-      if (!responseId) {
-        const newResponse = await formApi.createResponse({
-          formId: form.id,
-          userId: user.id,
-          userName: user.name,
-          status: 'SUBMITTED',
-          submittedAt: new Date().toISOString()
-        });
-        responseId = newResponse.id;
-      } else {
-        await formApi.updateResponse(responseId, {
-          status: 'SUBMITTED',
-          submittedAt: new Date().toISOString()
-        });
-      }
-
-      // Salvar respostas
+      // Preparar respostas
       const answersToSave = Object.entries(answers).map(([fieldId, value]) => ({
-        responseId: responseId!,
         fieldId,
         value
       }));
 
-      await formApi.saveAnswers(responseId, answersToSave);
+      // Enviar tudo junto
+      await formApi.createResponse({
+        formId: form.id,
+        userId: user.id,
+        userName: user.name,
+        status: 'SUBMITTED',
+        submittedAt: new Date().toISOString(),
+        answers: answersToSave
+      });
+
       alert('Formulário enviado com sucesso!');
       navigate('/pessoas');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Erro ao enviar formulário:', error);
-      alert('Erro ao enviar formulário. Por favor, tente novamente.');
+      // ✅ Tratamento específico para erro 409 (já respondeu)
+      if (error.response?.status === 409 || error.message?.includes('409')) {
+        alert('Você já respondeu este formulário.');
+      } else {
+        alert('Erro ao enviar formulário. Por favor, tente novamente.');
+      }
     } finally {
       setSaving(false);
     }
@@ -173,8 +163,17 @@ export function FormFiller() {
     const isRequired = field.required;
     const optionalLabel = !isRequired ? ' (opcional)' : '';
 
-    switch (field.type) {
+    // ✅ CORREÇÃO: Normalizar o tipo do campo (aceita field.type OU field.field_type)
+    const fieldType = (field.type || (field as any).field_type || '').toUpperCase();
+
+    console.log(`[FormFiller] Rendering field: "${field.label}" with type: "${fieldType}"`);
+
+    switch (fieldType) {
       case 'SHORT_TEXT':
+      case 'TEXT':
+      case 'EMAIL':
+      case 'PHONE':
+      case 'URL':
         return (
           <div key={field.id} className="space-y-2">
             <Label>
@@ -182,6 +181,7 @@ export function FormFiller() {
             </Label>
             {field.helpText && <p className="text-sm text-gray-600">{field.helpText}</p>}
             <Input
+              type={fieldType === 'EMAIL' ? 'email' : fieldType === 'URL' ? 'url' : 'text'}
               value={(value as string) || ''}
               onChange={(e) => setAnswers({ ...answers, [field.id]: e.target.value })}
               placeholder={field.config?.placeholder || 'Texto de resposta curta'}
@@ -192,6 +192,7 @@ export function FormFiller() {
         );
 
       case 'LONG_TEXT':
+      case 'TEXTAREA':
         return (
           <div key={field.id} className="space-y-2">
             <Label>
@@ -210,6 +211,7 @@ export function FormFiller() {
         );
 
       case 'MULTIPLE_CHOICE':
+      case 'RADIO':
         return (
           <div key={field.id} className="space-y-2">
             <Label>
@@ -234,6 +236,7 @@ export function FormFiller() {
         );
 
       case 'CHECKBOXES':
+      case 'CHECKBOX':
         return (
           <div key={field.id} className="space-y-2">
             <Label>
@@ -306,6 +309,7 @@ export function FormFiller() {
       }
 
       case 'DATE':
+      case 'DATETIME':
         return (
           <div key={field.id} className="space-y-2">
             <Label>
@@ -313,7 +317,7 @@ export function FormFiller() {
             </Label>
             {field.helpText && <p className="text-sm text-gray-600">{field.helpText}</p>}
             <Input
-              type="date"
+              type={fieldType === 'DATETIME' ? 'datetime-local' : 'date'}
               value={(value as string) || ''}
               onChange={(e) => setAnswers({ ...answers, [field.id]: e.target.value })}
               disabled={isReadOnly}
@@ -341,6 +345,7 @@ export function FormFiller() {
         );
 
       case 'DROPDOWN':
+      case 'SELECT':
         return (
           <div key={field.id} className="space-y-2">
             <Label>
@@ -366,8 +371,40 @@ export function FormFiller() {
           </div>
         );
 
+      case 'FILE':
+      case 'IMAGE':
+        return (
+          <div key={field.id} className="space-y-2">
+            <Label>
+              {field.label}{optionalLabel} {isRequired && <span className="text-red-500">*</span>}
+            </Label>
+            {field.helpText && <p className="text-sm text-gray-600">{field.helpText}</p>}
+            <Input
+              type="file"
+              accept={fieldType === 'IMAGE' ? 'image/*' : undefined}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) {
+                  setAnswers({ ...answers, [field.id]: file.name });
+                }
+              }}
+              disabled={isReadOnly}
+              required={isRequired}
+            />
+            <p className="text-xs text-gray-500">
+              Nota: Upload de arquivos será implementado em versão futura
+            </p>
+          </div>
+        );
+
       default:
-        return null;
+        console.warn(`[FormFiller] ⚠️ Unsupported field type: "${fieldType}" for field "${field.label}"`);
+        return (
+          <div key={field.id} className="space-y-2">
+            <Label>{field.label} (Tipo não suportado: {fieldType})</Label>
+            <p className="text-sm text-red-600">Este tipo de campo ainda não é suportado.</p>
+          </div>
+        );
     }
   };
 
@@ -451,7 +488,7 @@ export function FormFiller() {
 
           console.log(`[FormFiller] Rendering section: "${section.title}" (ID: ${section.id})`);
           console.log(`[FormFiller] Fields found for this section: ${sectionFields.length}`);
-          sectionFields.forEach(f => console.log(`  - Field: "${f.label}" (SectionId: ${f.sectionId})`));
+          sectionFields.forEach(f => console.log(`  - Field: "${f.label}" (Type: ${(f as any).field_type || f.type})`));
 
           // Só renderizar seção se houver campos
           if (sectionFields.length === 0) {

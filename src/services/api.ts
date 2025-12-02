@@ -214,6 +214,44 @@ export async function getDirectorates(): Promise<Directorate[]> {
 }
 
 // ============================================================
+// API DE PROGRAM INITIATIVES
+// ============================================================
+
+export async function getProgramInitiatives(): Promise<ProgramInitiative[]> {
+    await delay(200);
+    return apiClient.get<ProgramInitiative[]>('/api/program-initiatives');
+}
+
+export async function createProgramInitiative(data: Omit<ProgramInitiative, 'id'>): Promise<ProgramInitiative> {
+    return apiClient.post<ProgramInitiative>('/api/program-initiatives', data);
+}
+
+export async function deleteProgramInitiative(id: string): Promise<void> {
+    await apiClient.delete<void>(`/api/program-initiatives/${id}`);
+}
+
+// ============================================================
+// API DE EXECUTION CONTROLS
+// ============================================================
+
+export async function getExecutionControls(): Promise<ExecutionControl[]> {
+    await delay(200);
+    return apiClient.get<ExecutionControl[]>('/api/execution-controls');
+}
+
+export async function createExecutionControl(data: Omit<ExecutionControl, 'id'>): Promise<ExecutionControl> {
+    return apiClient.post<ExecutionControl>('/api/execution-controls', data);
+}
+
+export async function updateExecutionControl(id: string, data: Partial<ExecutionControl>): Promise<ExecutionControl> {
+    return apiClient.put<ExecutionControl>(`/api/execution-controls/${id}`, data);
+}
+
+export async function deleteExecutionControl(id: string): Promise<void> {
+    await apiClient.delete<void>(`/api/execution-controls/${id}`);
+}
+
+// ============================================================
 // EXPORTAÇÃO DEFAULT (compatibilidade)
 // ============================================================
 
@@ -256,6 +294,17 @@ export const api = {
 
     // Directorates
     getDirectorates,
+
+    // Program Initiatives
+    getProgramInitiatives,
+    createProgramInitiative,
+    deleteProgramInitiative,
+
+    // Execution Controls
+    getExecutionControls,
+    createExecutionControl,
+    updateExecutionControl,
+    deleteExecutionControl,
 };
 
 export default api;
