@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Layout } from '@/components/layout/Layout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,7 +20,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Pencil, Trash2, UserCheck, UserX, Eye, EyeOff } from 'lucide-react';
+import { Plus, Pencil, Trash2, UserCheck, UserX, Eye, EyeOff, Search, X } from 'lucide-react';
 import { api } from '@/services/api';
 import { User, UserRole } from '@/types';
 
@@ -33,6 +33,17 @@ export default function Administracao() {
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+
+  // Filtrar usuários pelo nome (busca local, sem chamar API)
+  const filteredUsers = useMemo(() => {
+    if (!searchTerm.trim()) return users;
+    const term = searchTerm.toLowerCase();
+    return users.filter(user => 
+      user.name.toLowerCase().includes(term) || 
+      user.email.toLowerCase().includes(term)
+    );
+  }, [users, searchTerm]);
 
   useEffect(() => {
     loadUsers();
@@ -156,7 +167,35 @@ export default function Administracao() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Usuários Cadastrados</CardTitle>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <CardTitle>Usuários Cadastrados</CardTitle>
+              {/* Campo de Busca */}
+              <div className="relative w-full sm:w-72">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Input
+                  type="text"
+                  placeholder="Pesquisar por nome ou email..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10 pr-10"
+                />
+                {searchTerm && (
+                  <button
+                    onClick={() => setSearchTerm('')}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            </div>
+            {/* Contagem de resultados */}
+            {searchTerm && (
+              <p className="text-sm text-gray-500 mt-2">
+                {filteredUsers.length} usuário{filteredUsers.length !== 1 ? 's' : ''} encontrado{filteredUsers.length !== 1 ? 's' : ''}
+                {searchTerm && <> para "<strong>{searchTerm}</strong>"</>}
+              </p>
+            )}
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
@@ -171,7 +210,25 @@ export default function Administracao() {
                   </tr>
                 </thead>
                 <tbody>
-                  {users.map((user) => (
+                  {filteredUsers.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="p-8 text-center text-gray-500">
+                        {searchTerm ? (
+                          <>
+                            Nenhum usuário encontrado para "{searchTerm}"
+                            <button 
+                              onClick={() => setSearchTerm('')}
+                              className="ml-2 text-blue-600 hover:underline"
+                            >
+                              Limpar busca
+                            </button>
+                          </>
+                        ) : (
+                          'Nenhum usuário cadastrado'
+                        )}
+                      </td>
+                    </tr>
+                  ) : filteredUsers.map((user) => (
                     <tr key={user.id} className="border-b hover:bg-gray-50">
                       <td className="p-4">{user.name}</td>
                       <td className="p-4">{user.email}</td>
